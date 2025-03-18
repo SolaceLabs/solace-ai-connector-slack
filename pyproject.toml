@@ -24,7 +24,7 @@ classifiers = [
 ]
 dependencies = [
 	"PyYAML>=6.0.1",
-	"discordpy>=2.5.2",
+	"discord.py>=2.5.2",
 	"solace_ai_connector>=1.0.0",
 	"prettytable>=3.10.0",
 ]
