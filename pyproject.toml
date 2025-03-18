@@ -6,7 +6,12 @@ build-backend = "hatchling.build"
 [project]
 name = "solace-ai-connector-discord"
 dynamic = ["version"]
-authors = [{ name = "Matthew Polak", email = "matthew.polak@solace.com" }]
+authors = [
+	{ name = "Matthew Polak", email = "matthew.polak@solace.com" },
+	{ name = "Edward Funnekotter", email = "edward.funnekotter@solace.com" },
+	{ name = "Greg Meldrum", email = "greg.meldrum@solace.com" },
+	{ name = "Cyrus Mobini", email = "cyrus.mobini@solace.com" },
+]
 description = "Discord plugin for the Solace AI Connector - this provides an input and output component to talk to Discord"
 readme = "README.md"
 requires-python = ">=3.11"
