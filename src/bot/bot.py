@@ -15,7 +15,7 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    if message.content.startswith('$hello'):
-        await message.channel.send('Hello!')
+    if client.user.mentioned_in(message):
+        await message.channel.send('You mentioned me!')
 
 client.run(os.getenv('DISCORD_TOKEN'))
