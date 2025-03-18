@@ -4,34 +4,30 @@ build-backend = "hatchling.build"
 
 
 [project]
-name = "solace-ai-connector-slack"
+name = "solace-ai-connector-discord"
 dynamic = ["version"]
-authors = [
-  { name="Edward Funnekotter", email="edward.funnekotter@solace.com" },
-  { name="Greg Meldrum", email="greg.meldrum@solace.com" },
-  { name="Cyrus Mobini", email="cyrus.mobini@solace.com" },
-]
-description = "Slack plugin for the Solace AI Connector - this provides an input and output component to talk to Slack"
+authors = [{ name = "Matthew Polak", email = "matthew.polak@solace.com" }]
+description = "Discord plugin for the Solace AI Connector - this provides an input and output component to talk to Discord"
 readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
-    "Programming Language :: Python",  
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
+	"Programming Language :: Python",
+	"Programming Language :: Python :: 3.11",
+	"Programming Language :: Python :: 3.12",
+	"License :: OSI Approved :: MIT License",
+	"Operating System :: OS Independent",
 ]
 dependencies = [
-    "PyYAML>=6.0.1",
-    "slack_bolt>=1.18.1",
-    "solace_ai_connector>=1.0.0",
-    "prettytable>=3.10.0",
+	"PyYAML>=6.0.1",
+	"discordpy>=2.5.2",
+	"solace_ai_connector>=1.0.0",
+	"prettytable>=3.10.0",
 ]
 
 [project.urls]
-homepage = "https://github.com/SolaceLabs/solace-ai-connector-slack"
-repository = "https://github.com/SolaceLabs/solace-ai-connector-slack"
-documentation = "https://github.com/SolaceLabs/solace-ai-connector-slack/blob/main/docs/index.md"
+homepage = "https://github.com/SolaceDev/solace-ai-connector-discord"
+repository = "https://github.com/SolaceDev/solace-ai-connector-discord"
+documentation = "https://github.com/SolaceDev/solace-ai-connector-discord/blob/main/docs/index.md"
 
 [tool.hatch.envs.hatch-test]
 installer = "pip"
@@ -40,10 +36,10 @@ installer = "pip"
 python = ["3.11", "3.12"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/solace_ai_connector_slack"]
+packages = ["src/solace_ai_connector_discord"]
 
 [tool.hatch.version]
-path = "src/solace_ai_connector_slack/components/__init__.py"
+path = "src/solace_ai_connector_discord/components/__init__.py"
 
 [tool.ruff]
 lint.select = ["E4", "E7", "E9", "F"]
