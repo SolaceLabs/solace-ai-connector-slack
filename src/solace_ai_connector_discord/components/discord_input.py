@@ -4,38 +4,26 @@ import base64
 import requests
 
 
-from slack_bolt.adapter.socket_mode import SocketModeHandler
 from solace_ai_connector.common.message import Message
 from solace_ai_connector.common.log import log
-from .slack_base import SlackBase
-
+from .discord_base import DiscordBase
 
 info = {
-    "class_name": "SlackInput",
+    "class_name": "DiscordInput",
     "description": (
-        "Slack input component. The component connects to Slack using the Bolt API "
-        "and receives messages from Slack channels."
+        "Discord input component. The component connects to Discord using the Discord API "
+        "and receives messages from Discord channels."
     ),
     "config_parameters": [
         {
-            "name": "slack_bot_token",
+            "name": "discord_bot_token",
             "type": "string",
-            "description": "The Slack bot token to connect to Slack.",
-        },
-        {
-            "name": "slack_app_token",
-            "type": "string",
-            "description": "The Slack app token to connect to Slack.",
-        },
-        {
-            "name": "share_slack_connection",
-            "type": "string",
-            "description": "Share the Slack connection with other components in this instance.",
+            "description": "The Discord bot token to connect to Discord.",
         },
         {
             "name": "max_file_size",
             "type": "number",
-            "description": "The maximum file size to download from Slack in MB. Default: 20MB",
+            "description": "The maximum file size to download from Discord in MB. Default: 20MB",
             "default": 20,
             "required": False,
         },
@@ -43,7 +31,7 @@ info = {
             "name": "max_total_file_size",
             "type": "number",
             "description": "The maximum total file size to download "
-            "from Slack in MB. Default: 20MB",
+            "from Discord in MB. Default: 20MB",
             "default": 20,
             "required": False,
         },
@@ -144,22 +132,21 @@ info = {
 }
 
 
-class SlackInput(SlackBase):
+class DiscordInput(DiscordBase):
     def __init__(self, **kwargs):
         super().__init__(info, **kwargs)
-        self.slack_receiver_queue = None
-        self.slack_receiver = None
-        self.init_slack_receiver()
+        self.discord_receiver_queue = None
+        self.discord_receiver = None
+        self.init_discord_receiver()
 
-    def init_slack_receiver(self):
-        # Create a queue to get messages from the Slack receiver
-        self.slack_receiver_queue = queue.Queue()
+    def init_discord_receiver(self):
+        # Create a queue to get messages from the Discord receiver
+        self.discord_receiver_queue = queue.Queue()
         self.stop_receiver_event = threading.Event()
-        self.slack_receiver = SlackReceiver(
+        self.discord_receiver = DiscordReceiver(
             app=self.app,
-            slack_app_token=self.slack_app_token,
-            slack_bot_token=self.slack_bot_token,
-            input_queue=self.slack_receiver_queue,
+            discord_bot_token=self.discord_bot_token,
+            input_queue=self.discord_receiver_queue,
             stop_event=self.stop_receiver_event,
             max_file_size=self.get_config("max_file_size"),
             max_total_file_size=self.get_config("max_total_file_size"),
@@ -167,30 +154,29 @@ class SlackInput(SlackBase):
             send_history_on_join=self.get_config("send_history_on_join"),
             acknowledgement_message=self.get_config("acknowledgement_message"),
         )
-        self.slack_receiver.start()
+        self.discord_receiver.start()
 
     def stop_component(self):
-        self.stop_slack_receiver()
+        self.stop_discord_receiver()
 
-    def stop_slack_receiver(self):
+    def stop_discord_receiver(self):
         self.stop_receiver_event.set()
-        self.slack_receiver.join()
+        self.discord_receiver.join()
 
     def get_next_message(self):
-        # Get the next message from the Slack receiver queue
-        message = self.slack_receiver_queue.get()
+        # Get the next message from the Discord receiver queue
+        message = self.discord_receiver_queue.get()
         return message
 
     def invoke(self, _message, data):
         return data
 
 
-class SlackReceiver(threading.Thread):
+class DiscordReceiver(threading.Thread):
     def __init__(
         self,
         app,
-        slack_app_token,
-        slack_bot_token,
+        discord_bot_token,
         input_queue,
         stop_event,
         max_file_size=20,
@@ -201,8 +187,7 @@ class SlackReceiver(threading.Thread):
     ):
         threading.Thread.__init__(self)
         self.app = app
-        self.slack_app_token = slack_app_token
-        self.slack_bot_token = slack_bot_token
+        self.discord_bot_token = discord_bot_token
         self.input_queue = input_queue
         self.stop_event = stop_event
         self.max_file_size = max_file_size
@@ -213,7 +198,7 @@ class SlackReceiver(threading.Thread):
         self.register_handlers()
 
     def run(self):
-        SocketModeHandler(self.app, self.slack_app_token).connect()
+        self.app.login(self.discord_bot_token)
         self.stop_event.wait()
 
     def handle_channel_event(self, event):
@@ -319,7 +304,7 @@ class SlackReceiver(threading.Thread):
             "event_ts": event.get("event_ts"),
             "channel_type": event.get("channel_type"),
             "user_id": event.get("user"),
-            "input_type": "slack",
+            "input_type": "discord",
             "thread_id": thread_id,
             "reply_to_thread": reply_to,
         }
@@ -348,7 +333,7 @@ class SlackReceiver(threading.Thread):
         self.input_queue.put(message)
 
     def download_file_as_base64_string(self, file_url):
-        headers = {"Authorization": "Bearer " + self.slack_bot_token}
+        headers = {"Authorization": "Bearer " + self.discord_bot_token}
         response = requests.get(file_url, headers=headers, timeout=10)
         base64_string = base64.b64encode(response.content).decode("utf-8")
         return base64_string
@@ -456,26 +441,10 @@ class SlackReceiver(threading.Thread):
         self.input_queue.put(message)
 
     def register_handlers(self):
-        @self.app.event("message")
-        def handle_chat_message(event):
-            if event.get("channel_type") == "im":
-                self.handle_event(event)
-            elif event.get("channel_type") == "channel":
-                self.handle_channel_event(event)
-            elif event.get("channel_type") == "group":
-                self.handle_group_event(event)
-
-        @self.app.event("app_mention")
-        def handle_app_mention(event):
-            print("Got app_mention event: ", event)
-            event["channel_type"] = "im"
-            event["channel_name"] = self.get_channel_name(event.get("channel"))
-            self.handle_event(event)
-
-        @self.app.event("member_joined_channel")
-        def handle_member_joined_channel(event, _say, context):
-            if (
-                self.send_history_on_join
-                and event.get("user") == context["bot_user_id"]
-            ):
-                self.handle_new_channel_join(event)
+        @self.app.event
+        def on_message(message):
+            print("got message", message)
+            
+        @self.app.event
+        def on_ready():
+            print("ready!")

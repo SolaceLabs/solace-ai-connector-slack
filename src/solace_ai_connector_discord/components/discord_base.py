@@ -1,4 +1,4 @@
-"""Base class for all Slack components"""
+"""Base class for all Discord components"""
 
 from abc import ABC, abstractmethod
 import json
@@ -8,8 +8,8 @@ from discord import Client, Intents
 from solace_ai_connector.components.component_base import ComponentBase
 
 
-class SlackBase(ComponentBase, ABC):
-    _slack_apps = {}
+class DiscordBase(ComponentBase, ABC):
+    _discord_apps = {}
 
     def __init__(self, module_info, **kwargs):
         super().__init__(module_info, **kwargs)
@@ -19,9 +19,7 @@ class SlackBase(ComponentBase, ABC):
         self.feedback_enabled = self.get_config("feedback", False)
         self.feedback_post_url = self.get_config("feedback_post_url", None)
         self.feedback_post_headers = self.get_config("feedback_post_headers", {})
-
-        intents = Intents.default()
-        self.app = Client(intents=intents)
+        self.app = Client(intents=Intents.default())
 
     @abstractmethod
     def invoke(self, message, data):
@@ -34,23 +32,13 @@ class SlackBase(ComponentBase, ABC):
         return self.__str__()
     
     def register_action_handlers(self):
-        @self.app.action("thumbs_up_action")
-        def handle_thumbs_up(ack, body, say):
-            self.thumbs_up_down_feedback_handler(ack, body, "thumbs_up")
-
-        @self.app.action("thumbs_down_action")
-        def handle_thumbs_down(ack, body, say):
-            self.thumbs_up_down_feedback_handler(ack, body, "thumbs_down")
-
-        @self.app.action("feedback_text_reason")
-        def handle_feedback_input(ack, body, say):
-            self.feedback_reason_handler(ack, body)
+        pass
 
     def feedback_reason_handler(self, ack, body):
         # Acknowledge the action request
         ack()
         
-        # This is a bit of a hack but slack leaves us no choice.
+        # This is a bit of a hack but discord leaves us no choice.
         # The block_id is a stringified JSON object that contains the channel, thread_ts and feedback.
         block_id = body['actions'][0]['block_id']
         value_object = json.loads(block_id)
@@ -71,7 +59,7 @@ class SlackBase(ComponentBase, ABC):
         # Get the previous message in the thread with the block_id
         prev_message_ts = self._find_previous_message(thread_ts, channel, block_id)
 
-        thanks_message_block = SlackBase._create_feedback_thanks_block(user_id, feedback)
+        thanks_message_block = DiscordBase._create_feedback_thanks_block(user_id, feedback)
         if prev_message_ts is None:
             # We couldn't find the previous message
             # Just add a new message with a thank you message
@@ -123,7 +111,7 @@ class SlackBase(ComponentBase, ABC):
         if prev_message_ts is None:
             # We couldn't find the previous message
             # Just add a new message with a thank you message
-            thanks_block = SlackBase._create_feedback_thanks_block(user_id, feedback)
+            thanks_block = DiscordBase._create_feedback_thanks_block(user_id, feedback)
             self.app.client.chat_postMessage(
                 channel=channel,
                 thread_ts=thread_ts,
@@ -134,11 +122,11 @@ class SlackBase(ComponentBase, ABC):
 
             # If it's a thumbs up, we just thank them but if it's a thumbs down, we ask for a reason
             if feedback == "thumbs_up":
-                next_block = SlackBase._create_feedback_thanks_block(user_id, feedback)
+                next_block = DiscordBase._create_feedback_thanks_block(user_id, feedback)
 
             else:
                 value_object["feedback"] = feedback
-                next_block = SlackBase._create_feedback_reason_block(value_object)
+                next_block = DiscordBase._create_feedback_reason_block(value_object)
 
             self.app.client.chat_update(
                 channel=channel,
@@ -151,12 +139,12 @@ class SlackBase(ComponentBase, ABC):
             self._send_feedback_rest_post(body, feedback, None, feedback_data)
 
     def _find_previous_message(self, thread_ts, channel, block_id):
-        """Find a previous message in a Slack conversation or thread based on a block_id.
-        This method searches through the recent message history of a Slack conversation or thread
+        """Find a previous message in a Discord conversation or thread based on a block_id.
+        This method searches through the recent message history of a Discord conversation or thread
         to find a message containing a block with a specific block_id.
         Args:
             thread_ts (str, optional): The timestamp of the thread. If None, searches in main channel history.
-            channel (str): The ID of the Slack channel to search in.
+            channel (str): The ID of the Discord channel to search in.
             block_id (str): The block ID to search for within messages.
         Returns:
             str or None: The timestamp (ts) of the message containing the specified block_id,
@@ -198,7 +186,7 @@ class SlackBase(ComponentBase, ABC):
         rest_body = {
             "user": body['user'],
             "feedback": feedback,
-            "interface": "slack",
+            "interface": "discord",
             "interface_data": {
                 "channel": body['channel']
             },
@@ -219,7 +207,7 @@ class SlackBase(ComponentBase, ABC):
 
     @staticmethod
     def _create_feedback_thanks_block(user_id, feedback):
-        message = SlackBase._create_feedback_message(feedback)
+        message = DiscordBase._create_feedback_message(feedback)
         return {
                     "type": "section",
                     "text": {
@@ -241,7 +229,7 @@ class SlackBase(ComponentBase, ABC):
         return {
                 "type": "input",
 
-                # This is a bit of a hack but slack leaves us no choice.
+                # This is a bit of a hack but discord leaves us no choice.
                 # The block_id is a stringified JSON object that contains # the feedback specific data. We need this state in the
                 # action handler to respond to the user.
                 "block_id": json.dumps(feedback_data),

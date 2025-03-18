@@ -6,34 +6,29 @@ from datetime import datetime
 from prettytable import PrettyTable
 
 from solace_ai_connector.common.log import log
-from .slack_base import SlackBase
+from .discord_base import DiscordBase
 
 
 info = {
-    "class_name": "SlackOutput",
+    "class_name": "DiscordOutput",
     "description": (
-        "Slack output component. The component sends messages to Slack channels using the Bolt API."
+        "Discord output component. The component sends messages to Discord channels using the Bolt API."
     ),
     "config_parameters": [
         {
-            "name": "slack_bot_token",
+            "name": "discord_bot_token",
             "type": "string",
-            "description": "The Slack bot token to connect to Slack.",
+            "description": "The Discord bot token to connect to Discord.",
         },
         {
-            "name": "slack_app_token",
+            "name": "share_discord_connection",
             "type": "string",
-            "description": "The Slack app token to connect to Slack.",
-        },
-        {
-            "name": "share_slack_connection",
-            "type": "string",
-            "description": "Share the Slack connection with other components in this instance.",
+            "description": "Share the Discord connection with other components in this instance.",
         },
         {
             "name": "correct_markdown_formatting",
             "type": "boolean",
-            "description": "Correct markdown formatting in messages to conform to Slack markdown.",
+            "description": "Correct markdown formatting in messages to conform to Discord markdown.",
             "default": "true",
         },
         {
@@ -128,7 +123,7 @@ info = {
 }
 
 
-class SlackOutput(SlackBase):
+class DiscordOutput(DiscordBase):
     def __init__(self, **kwargs):
         super().__init__(info, **kwargs)
         self.fix_formatting = self.get_config("correct_markdown_formatting", True)
@@ -161,7 +156,7 @@ class SlackOutput(SlackBase):
             text = ":thinking_face: " + text
 
         if not channel:
-            log.error("slack_output: No channel specified in message")
+            log.error("discord_output: No channel specified in message")
             self.discard_current_message()
             return None
 
@@ -287,7 +282,7 @@ class SlackOutput(SlackBase):
 
 
         except Exception as e:
-            log.error("Error sending slack message: %s", e)
+            log.error("Error sending discord message: %s", e)
 
         super().send_message(message)
 
@@ -300,7 +295,7 @@ class SlackOutput(SlackBase):
         # Fix bold
         message = re.sub(r"\*\*(.*?)\*\*", r"*\1*", message)
 
-        # Reformat a table to be Slack compatible
+        # Reformat a table to be Discord compatible
         message = self.convert_markdown_tables(message)
 
         return message
