@@ -7,6 +7,7 @@ build-backend = "hatchling.build"
 name = "solace-ai-connector-discord"
 dynamic = ["version"]
 authors = [
+	{ name = "Zachary Shewan", email = "zach.shewan@solace.com" },
 	{ name = "Matthew Polak", email = "matthew.polak@solace.com" },
 	{ name = "Edward Funnekotter", email = "edward.funnekotter@solace.com" },
 	{ name = "Greg Meldrum", email = "greg.meldrum@solace.com" },
