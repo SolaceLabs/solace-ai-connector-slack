@@ -10,7 +10,7 @@
       "request": "launch",
       "program": ".venv/bin/solace-ai-connector-gen-docs",
       "console": "integratedTerminal",
-      "args": "src/solace_ai_connector_slack",
+      "args": "src/solace_ai_connector_discord",
       "justMyCode": false
     }
   ]
