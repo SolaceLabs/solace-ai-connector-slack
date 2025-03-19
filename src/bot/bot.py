@@ -1,4 +1,5 @@
 import os
+import discord
 from discord import Intents, Interaction, Message, ChannelType, ButtonStyle, InteractionType, ComponentType
 from discord.ui import Button, View
 from discord.ext.commands import Bot
@@ -9,6 +10,22 @@ intents.guild_messages = True
 
 client = Bot(command_prefix="!", intents=intents)
 
+class Feedback(discord.ui.Modal, title=''):
+    
+    feedback = discord.ui.TextInput(
+        label='Feedback',
+        placeholder='How can we improve this response?',
+        required=False,
+        max_length=300,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.send_message(f'Thanks for your feedback, {self.name.value}!', ephemeral=True)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        await interaction.response.send_message('Oops! Something went wrong.', ephemeral=True)
+
+
 def trunc(text: str, max: int = 20):
   return text[:max] if len(text) > max else text
 
@@ -16,7 +33,8 @@ async def thumbs_up(interaction: Interaction):
   await interaction.response.send_message("You clicked thumbs up!", ephemeral=True)
 
 async def thumbs_down(interaction: Interaction):
-  await interaction.response.send_message("You clicked thumbs down!", ephemeral=True)
+  await interaction.response.send_modal(Feedback())
+
 
 @client.event
 async def on_interaction(interaction: Interaction):
