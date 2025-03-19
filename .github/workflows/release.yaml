@@ -22,7 +22,7 @@ jobs:
     with:
       ENVIRONMENT: pypi
       version: ${{ github.event.inputs.version }}
-      pypi-project: solace-ai-connector-slack
+      pypi-project: solace-ai-connector-discord
     secrets:
       COMMIT_KEY: ${{ secrets.COMMIT_KEY }}
       PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
