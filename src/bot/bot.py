@@ -52,7 +52,7 @@ async def on_message(message: Message):
     await thread.send("hello world", view=view)
 
 @client.event
-async def syncCommands():
+async def on_ready():
   try:
     s = await client.tree.sync()
     print(f"Synced {len(s)} commands")
@@ -61,8 +61,23 @@ async def syncCommands():
 
 
 @client.tree.command(name = "help")
-async def help(interaction: discord.Interaction):
-  await interaction.response.send_message(f"Hi {interaction.user.mention}, I'm SollyChat!", ephemeral=True)
+async def test(interaction: discord.Interaction):
+  await interaction.response.send_message(f"""
+Hi {interaction.user.mention}!
+
+I'm the Solace AI Chatbot, designed to assist Solace employees with various tasks and information needs. 
+
+## What I can do:
+* Answer general questions and provide assistance
+* Search Solace customer documentation for product information
+* Access Confluence pages for internal documentation
+* Retrieve employee information (schedules, contact details, org charts)
+* Work with Jira issues and RT support tickets
+* Generate diagrams, charts, and reports
+* Process and analyze images
+* Search the web for current information
+
+I can help with both general inquiries and Solace-specific questions by leveraging specialized agents to access the right information sources. Just let me know what you need assistance with!""", ephemeral=True)
 
 
 client.run(os.getenv('DISCORD_TOKEN') or exit(-123))
