@@ -8,6 +8,10 @@ client = Bot(command_prefix="!", intents=Intents.default())
 def trunc(text: str, max: int = 20):
   return text[:max] if len(text) > max else text
 
+@client.event
+async def on_ready():
+  print(f'We have logged in as {client.user}')
+
 async def thumbs_up(interaction: Interaction):
   await interaction.response.send_message("You clicked thumbs up!", ephemeral=True)
 
@@ -58,7 +62,6 @@ async def on_message(message: Message):
 
 @client.event
 async def on_ready():
-  print("hello")
   try:
     s = await client.tree.sync()
     print(f"Synced {len(s)} commands")
