@@ -14,7 +14,12 @@ class DiscordBase(ComponentBase, ABC):
 
     def __init__(self, module_info, **kwargs):
         super().__init__(module_info, **kwargs)
-        self.discord_bot_token = self.get_config("discord_bot_token")
+
+        discord_bot_token = self.get_config("discord_bot_token")
+
+        assert isinstance(discord_bot_token, str), "discord_bot_token must be a str"
+
+        self.discord_bot_token = discord_bot_token
         self.max_file_size = self.get_config("max_file_size", 20)
         self.max_total_file_size = self.get_config("max_total_file_size", 20)
         self.feedback_enabled = self.get_config("feedback", False)
@@ -30,7 +35,7 @@ class DiscordBase(ComponentBase, ABC):
         self.register_action_handlers()
 
     def run(self):
-        self.app.run(os.getenv('DISCORD_TOKEN') or exit(-123))
+        self.app.run(self.discord_bot_token)
 
     @abstractmethod
     def invoke(self, message, data):

@@ -61,16 +61,10 @@ info = {
                     "type": {
                         "type": "string",
                     },
-                    "user_email": {
-                        "type": "string",
-                    },
                     "client_msg_id": {
                         "type": "string",
                     },
                     "ts": {
-                        "type": "string",
-                    },
-                    "subtype": {
                         "type": "string",
                     },
                     "event_ts": {

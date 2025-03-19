@@ -95,18 +95,6 @@ info = {
                             },
                         },
                     },
-                    "user_email": {
-                        "type": "string",
-                    },
-                    "mentions": {
-                        "type": "array",
-                        "items": {
-                            "type": "string",
-                        },
-                    },
-                    "type": {
-                        "type": "string",
-                    },
                     "user_id": {
                         "type": "string",
                     },
@@ -117,9 +105,6 @@ info = {
                         "type": "string",
                     },
                     "channel": {
-                        "type": "string",
-                    },
-                    "subtype": {
                         "type": "string",
                     },
                     "event_ts": {
@@ -344,7 +329,7 @@ class DiscordReceiver(threading.Thread):
     def register_handlers(self):
         @self.app.event
         async def on_message(message: DiscordMessage):
-            if message.author != self.app.user:
+            if message.author == self.app.user:
                 return
             if not self.app.user or not self.app.user.mentioned_in(message):
                 return
