@@ -1,10 +1,13 @@
 import os
-import discord
-from discord import Intents, Client, Interaction, Message, ChannelType, ButtonStyle, InteractionType, app_commands
+from discord import Intents, Client, Interaction, Message, ChannelType, ButtonStyle, InteractionType, ComponentType
 from discord.ui import Button, View
 from discord.ext import commands
 
-client = commands.Bot(command_prefix="!", intents=discord.Intents.all())
+intents = Intents.default()
+intents.dm_messages = True
+intents.guild_messages = True
+
+client = Client(intents=intents)
 
 def trunc(text: str, max: int = 20):
   return text[:max] if len(text) > max else text
@@ -13,30 +16,38 @@ def trunc(text: str, max: int = 20):
 async def on_ready():
   print(f'We have logged in as {client.user}')
 
-async def thumbsup_callback(interaction: Interaction):
+async def thumbs_up(interaction: Interaction):
   await interaction.response.send_message("You clicked thumbs up!", ephemeral=True)
 
-async def thumbsdown_callback(interaction: Interaction):
+async def thumbs_down(interaction: Interaction):
   await interaction.response.send_message("You clicked thumbs down!", ephemeral=True)
 
 @client.event
 async def on_interaction(interaction: Interaction):
   if interaction.type != InteractionType.component:
     return
+  if not interaction.data:
+    return
+  if "component_type" not in interaction.data or interaction.data["component_type"] != ComponentType.button.value:
+    return
+  
+  custom_id = interaction.data["custom_id"]
+  
+  match custom_id:
+    case "thumbs_up": await thumbs_up(interaction)
+    case "thumbs_down": await thumbs_down(interaction)
 
 @client.event
 async def on_message(message: Message):
+  print("got msg")
   if message.author == client.user or not client.user:
     return
 
   if not client.user.mentioned_in(message):
     return
 
-  thumbsup_button = Button(label="👍", style=ButtonStyle.green)
-  thumbsdown_button = Button(label="👎", style=ButtonStyle.red)
-
-  thumbsup_button.callback = thumbsup_callback
-  thumbsdown_button.callback = thumbsdown_callback
+  thumbsup_button = Button(label="👍", style=ButtonStyle.green, custom_id="thumbs_up")
+  thumbsdown_button = Button(label="👎", style=ButtonStyle.red, custom_id="thumbs_down")
 
   view = View()
   view.add_item(thumbsup_button)
