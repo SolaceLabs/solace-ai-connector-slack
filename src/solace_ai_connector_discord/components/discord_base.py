@@ -41,39 +41,6 @@ class DiscordBase(ComponentBase, ABC):
 
     def __repr__(self):
         return self.__str__()
-    
-    def register_action_handlers(self):
-        """
-            _summary_ : Register the action handlers for the Discord bot
-        """
-
-        @self.app.event
-        async def on_ready():
-            await self.app.tree.sync()
-
-        @self.app.event
-        async def on_interaction(interaction: Interaction):
-            if interaction.type != InteractionType.component:
-                return
-            if not interaction.data:
-                return
-            if "component_type" not in interaction.data or interaction.data["component_type"] != ComponentType.button.value:
-                return
-
-            custom_id = interaction.data["custom_id"]
-
-            if interaction.message:
-                await interaction.message.edit(view=None)
-
-            match custom_id:
-                case "thumbs_up": await self.thumbs_up_callback(interaction)
-                case "thumbs_down": await self.thumbs_down_callback(interaction)
-
-    async def thumbs_up_callback(self, interaction: Interaction):
-        await interaction.response.send_message("You clicked thumbs up!", ephemeral=True)
-
-    async def thumbs_down_callback(self, interaction: Interaction):
-        await interaction.response.send_message("You clicked thumbs down!", ephemeral=True)
 
     def thumbs_up_down_feedback_handler(self, body, feedback):
             # # Acknowledge the action request

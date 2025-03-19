@@ -10,8 +10,9 @@ from prettytable import PrettyTable
 
 from solace_ai_connector.common.log import log
 from .discord_base import DiscordBase
-from discord import TextChannel, File, ButtonStyle, Client, Message as DiscordMessage
-from discord.ui import Button, View
+from discord import TextChannel, File, ButtonStyle, Message as DiscordMessage, Interaction, InteractionType, ComponentType
+from discord.ui import Button, View, Modal, TextInput
+from discord.ext.commands import Bot
 
 
 info = {
@@ -124,7 +125,6 @@ class DiscordOutput(DiscordBase):
         super().__init__(info, **kwargs)
         self.fix_formatting = self.get_config("correct_markdown_formatting", True)
         self.streaming_state = {}
-        self.register_action_handlers()
         self.discord_message_response_queue = queue.Queue()
 
         DiscordSender(self.app, self.discord_bot_token, self.discord_message_response_queue, self.feedback_enabled).start()
@@ -239,10 +239,24 @@ class DiscordOutput(DiscordBase):
         pattern = r"\|.*\|[\n\r]+\|[-:| ]+\|[\n\r]+((?:\|.*\|[\n\r]+)+)"
         return re.sub(pattern, markdown_to_fixed_width, message)
 
+class Feedback(Modal, title=''):
+    feedback = TextInput(
+        label='Feedback',
+        placeholder='How can we improve this response?',
+        required=False,
+        max_length=300,
+    )
+
+    async def on_submit(self, interaction: Interaction):
+        await interaction.response.send_message(f'Thanks for your feedback, {interaction.user.mention}!', ephemeral=True)
+
+    async def on_error(self, interaction: Interaction, error: Exception) -> None:
+        await interaction.response.send_message('Oops! Something went wrong.', ephemeral=True)
+
 class DiscordSender(threading.Thread):
     def __init__(
         self,
-        app: Client,
+        app: Bot,
         discord_bot_token,
         input_queue: queue.Queue[DiscordMessage],
         feedback_enabled: bool
@@ -345,6 +359,7 @@ class DiscordSender(threading.Thread):
         print("[GZ] gooo")
 
         asyncio.create_task(self.do_messages())
+        self.register_action_handlers()
 
         await self.app.connect()
     
@@ -355,3 +370,36 @@ class DiscordSender(threading.Thread):
                 asyncio.create_task(self.send_message(message))
             except queue.Empty:
                 await asyncio.sleep(0.01)
+
+    def register_action_handlers(self):
+        """
+            _summary_ : Register the action handlers for the Discord bot
+        """
+
+        @self.app.event
+        async def on_ready():
+            await self.app.tree.sync()
+
+        @self.app.event
+        async def on_interaction(interaction: Interaction):
+            if interaction.type != InteractionType.component:
+                return
+            if not interaction.data:
+                return
+            if "component_type" not in interaction.data or interaction.data["component_type"] != ComponentType.button.value:
+                return
+
+            custom_id = interaction.data["custom_id"]
+
+            if interaction.message:
+                await interaction.message.edit(view=None)
+
+            match custom_id:
+                case "thumbs_up": await self.thumbs_up_callback(interaction)
+                case "thumbs_down": await self.thumbs_down_callback(interaction)
+
+    async def thumbs_up_callback(self, interaction: Interaction):
+        await interaction.response.send_message("You clicked thumbs up!", ephemeral=True)
+
+    async def thumbs_down_callback(self, interaction: Interaction):
+        await interaction.response.send_modal(Feedback())
