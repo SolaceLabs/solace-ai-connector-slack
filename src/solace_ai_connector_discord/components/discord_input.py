@@ -166,7 +166,9 @@ class DiscordInput(DiscordBase):
 
     def get_next_message(self):
         # Get the next message from the Discord receiver queue
+        print("[grep] waiting for message")
         message = self.discord_receiver_queue.get()
+        print("[grep] got message")
         return message
 
     def invoke(self, _message, data):
@@ -200,6 +202,7 @@ class DiscordReceiver(threading.Thread):
 
     def run(self):
         self.app.run(self.discord_bot_token)
+        super().run()
         self.stop_event.wait()
 
     async def handle_event(self, message: DiscordMessage):
@@ -251,11 +254,11 @@ class DiscordReceiver(threading.Thread):
             "files": files,
             "team_domain": team_domain,
             "client_msg_id": message.id,
-            "ts": message.created_at,
+            "ts": message.created_at.timestamp(),
             "channel": message.channel.id,
             "channel_name": message.author.name if isinstance(message.channel, (DMChannel, PartialMessageable)) else message.channel.name,
-            "event_ts": message.created_at,
-            "thread_ts": message.channel.created_at if is_thread else message.created_at,
+            "event_ts": message.created_at.timestamp(),
+            "thread_ts": message.channel.created_at.timestamp() if is_thread and message.channel.created_at else message.created_at.timestamp(),
             "channel_type": str(message.channel.type),
             "user_id": user_id,
             "thread_id": thread_id,
@@ -264,15 +267,16 @@ class DiscordReceiver(threading.Thread):
         user_properties = {
             "username": message.author.name,
             "client_msg_id": message.id,
-            "ts": message.created_at,
-            "thread_ts": message.channel.created_at if is_thread else message.created_at,
+            "ts": message.created_at.timestamp(),
+            "thread_ts": message.channel.created_at.timestamp() if is_thread and message.channel.created_at else message.created_at.timestamp(),
             "channel": message.channel.id,
-            "event_ts": message.created_at,
+            "event_ts": message.created_at.timestamp(),
             "channel_type": str(message.channel.type),
             "user_id": user_id,
             "input_type": "discord",
             "thread_id": thread_id,
             "reply_to_thread": thread_id,
+            "identity": user_id
         }
 
         solace_message = Message(payload=payload, user_properties=user_properties)

@@ -1,0 +1,5 @@
+- discord_config: &gateway_interface_config
+    discord_bot_token: ${DISCORD_BOT_TOKEN}
+
+- response_format_prompt: &response_format_prompt >
+    Return all responses in markdown format and if the response contains a file or image, return it with the <file> tags and not as a link.

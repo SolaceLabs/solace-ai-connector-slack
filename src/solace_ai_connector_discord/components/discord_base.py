@@ -35,7 +35,9 @@ class DiscordBase(ComponentBase, ABC):
         self.register_action_handlers()
 
     def run(self):
-        self.app.run(self.discord_bot_token)
+        print("[grep] starting")
+        print(self.discord_bot_token)
+        super().run()
 
     @abstractmethod
     def invoke(self, message, data):

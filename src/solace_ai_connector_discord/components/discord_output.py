@@ -125,8 +125,13 @@ class DiscordOutput(DiscordBase):
         self.fix_formatting = self.get_config("correct_markdown_formatting", True)
         self.streaming_state = {}
         self.register_action_handlers()
+    
+    def run(self):
+        self.app.run(self.discord_bot_token)
+        super().run()
 
     def invoke(self, message, data):
+        print("[grep2] INVOKE CALLED")
         content = data.get("content")
         message_info = data.get("message_info")
 
@@ -172,6 +177,7 @@ class DiscordOutput(DiscordBase):
         }
 
     async def send_message(self, message):
+        print('[grep2] snedm essage')
         try:
             channel = message.get_data("previous:channel")
             messages = message.get_data("previous:text")
