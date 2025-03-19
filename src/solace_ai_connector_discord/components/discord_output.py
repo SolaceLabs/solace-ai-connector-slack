@@ -286,7 +286,6 @@ class DiscordSender(threading.Thread):
             response_complete = message.get_data("previous:response_complete")
             feedback_data = message.get_data("previous:feedback_data") or {}
 
-
             if not isinstance(messages, list):
                 if messages is not None:
                     messages = [messages]
@@ -306,7 +305,7 @@ class DiscordSender(threading.Thread):
                 return
             self.last_content_len_by_uuid[uuid] = len(text)
 
-            if last_chunk or now - self.last_sent_by_uuid.get(uuid, 0) > 3000:
+            if last_chunk or response_complete or now - self.last_sent_by_uuid.get(uuid, 0) > 3000:
                 self.last_sent_by_uuid[uuid] = now
             else:
                 # throttle responses
@@ -318,12 +317,14 @@ class DiscordSender(threading.Thread):
             if len(full) > 2000:
                 full = full[:2000]
 
+            view = self.create_feedback_view() if response_complete else None
+
             if uuid not in self.sent_message_by_uuid:
-                sent_message = await text_channel.send(full or "\u200b")
+                sent_message = await text_channel.send(full or "\u200b", view=view)
                 self.sent_message_by_uuid[uuid] = sent_message
             else:
                 sent_message = self.sent_message_by_uuid[uuid]
-                await sent_message.edit(content=full or "\u200b")
+                await sent_message.edit(content=full or "\u200b", view=view)
 
             files_to_add = []
 
@@ -333,10 +334,6 @@ class DiscordSender(threading.Thread):
 
             if files_to_add:
                 await sent_message.add_files(*files_to_add)
-
-            if streaming and response_complete and self.feedback_enabled:
-                view = self.create_feedback_view()
-                await sent_message.edit(view=view)
 
         except Exception as e:
             log.error("Error sending discord message: %s", e)

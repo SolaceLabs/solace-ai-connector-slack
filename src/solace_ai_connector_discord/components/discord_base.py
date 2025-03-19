@@ -31,9 +31,6 @@ class DiscordBase(ComponentBase, ABC):
 
         self.app = Bot(command_prefix=self.command_prefix, intents=Intents.default())
 
-        #We should run the register action handlers function (temporary, this will be called by DiscordOutput)
-        self.register_action_handlers()
-
     @abstractmethod
     def invoke(self, message, data):
         print("some invoke")
