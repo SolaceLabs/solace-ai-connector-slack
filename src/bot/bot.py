@@ -3,14 +3,14 @@ from discord import Intents, Interaction, Message, ChannelType, ButtonStyle, Int
 from discord.ui import Button, View
 from discord.ext.commands import Bot
 
-client = Bot(command_prefix="!", intents=Intents.default())
+intents = Intents.none()
+intents.dm_messages = True
+intents.guild_messages = True
+
+client = Bot(command_prefix="!", intents=intents)
 
 def trunc(text: str, max: int = 20):
   return text[:max] if len(text) > max else text
-
-@client.event
-async def on_ready():
-  print(f'We have logged in as {client.user}')
 
 async def thumbs_up(interaction: Interaction):
   await interaction.response.send_message("You clicked thumbs up!", ephemeral=True)
