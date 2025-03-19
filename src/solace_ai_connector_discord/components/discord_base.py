@@ -3,10 +3,9 @@
 from abc import ABC, abstractmethod
 import json
 import os
-import requests
-
-from discord import Intents, Client, Interaction, Message, ChannelType, ButtonStyle, InteractionType
-from discord.ui import Button, View
+    
+from discord import Intents, Interaction,  InteractionType, ComponentType
+from discord.ext.commands import Bot
 from solace_ai_connector.components.component_base import ComponentBase
 
 
@@ -21,17 +20,12 @@ class DiscordBase(ComponentBase, ABC):
         self.feedback_enabled = self.get_config("feedback", False)
         self.feedback_post_url = self.get_config("feedback_post_url", None)
         self.feedback_post_headers = self.get_config("feedback_post_headers", {})
-        self.app = Client(intents=Intents.default())
+        self.command_prefix = self.get_config("command_prefix", "!")
         
-        # Here are some buttons that the discord bot should be able to use
-        self.thumbs_up_button = Button(label="👍", style=ButtonStyle.green)
-        self.thumbs_down_button = Button(label="👎", style=ButtonStyle.red)
-        self.thumbs_up_button.callback = self.thumbsup_callback
-        self.thumbs_down_button.callback = self.thumbsdown_callback
-        self.view = View()
-        self.view.add_item(self.thumbs_up_button)
-        self.view.add_item(self.thumbs_down_button)
-        
+        assert isinstance(self.command_prefix, str), "command_prefix must be a str"
+
+        self.app = Bot(command_prefix=self.command_prefix, intents=Intents.default())
+
         #We should run the register action handlers function (temporary, this will be called by DiscordOutput)
         self.register_action_handlers()
 
@@ -51,39 +45,30 @@ class DiscordBase(ComponentBase, ABC):
     def register_action_handlers(self):
         """
             _summary_ : Register the action handlers for the Discord bot
-            
         """
+
         @self.app.event
         async def on_ready():
-            print(f'We have logged in as {self.app.user}')
+            await self.app.tree.sync()
 
         @self.app.event
-        async def on_message(message: Message):
-            if message.author != self.app.user:
+        async def on_interaction(interaction: Interaction):
+            if interaction.type != InteractionType.component:
                 return
-            if  not self.app.user.mentioned_in(message):
+            if not interaction.data:
                 return
-            for attachment in message.attachments:
-                attachment.url
+            if "component_type" not in interaction.data or interaction.data["component_type"] != ComponentType.button.value:
+                return
 
-            if message.channel.type in [ChannelType.public_thread, ChannelType.private_thread]:
-                await message.reply("hello world", view=self.view)
-            else:
-                thread = await message.create_thread(name="solly")
-                await thread.send("hello world", view=self.view)
+            custom_id = interaction.data["custom_id"]
 
+            if interaction.message:
+                await interaction.message.edit(view=None)
 
-        @self.app.event
-        async def on_reaction_add(reaction, user):
-            if user != self.app.user:
-                if reaction.emoji == '👍':
-                    await self.thumbs_up_callback(reaction)
-                elif reaction.emoji == '👎':
-                    await self.thumbs_down_callback(reaction)
-                else:
-                    await reaction.message.channel.send(f'{user.name} reacted with {reaction.emoji}')
+            match custom_id:
+                case "thumbs_up": await self.thumbs_up_callback(interaction)
+                case "thumbs_down": await self.thumbs_down_callback(interaction)
 
-    
     async def thumbs_up_callback(self, interaction: Interaction):
         await interaction.response.send_message("You clicked thumbs up!", ephemeral=True)
 

@@ -344,4 +344,8 @@ class DiscordReceiver(threading.Thread):
     def register_handlers(self):
         @self.app.event
         async def on_message(message: DiscordMessage):
+            if message.author != self.app.user:
+                return
+            if not self.app.user or not self.app.user.mentioned_in(message):
+                return
             await self.handle_event(message)
