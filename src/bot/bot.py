@@ -2,10 +2,10 @@ import os
 from discord import Intents, Client, Interaction, Message, ChannelType, ButtonStyle, InteractionType
 from discord.ui import Button, View
 
-intents = Intents.default()
-intents.message_content = True
+client = Client(intents=Intents.none())
 
-client = Client(intents=intents)
+def trunc(text: str, max: int = 20):
+  return text[:max] if len(text) > max else text
 
 @client.event
 async def on_ready():
@@ -46,7 +46,7 @@ async def on_message(message: Message):
   if message.channel.type in [ChannelType.public_thread, ChannelType.private_thread]:
     await message.reply("hello world", view=view)
   else:
-    thread = await message.create_thread(name="solly")
+    thread = await message.create_thread(name=trunc(message.clean_content))
     await thread.send("hello world", view=view)
 
 client.run(os.getenv('DISCORD_TOKEN') or exit(-123))

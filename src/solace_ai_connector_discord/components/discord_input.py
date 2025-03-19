@@ -7,6 +7,10 @@ import requests
 from solace_ai_connector.common.message import Message
 from solace_ai_connector.common.log import log
 from .discord_base import DiscordBase
+from discord import Message as DiscordMessage, ChannelType, DMChannel, PartialMessageable, Client, TextChannel
+
+def trunc(text: str, max: int = 20):
+  return text[:max] if len(text) > max else text
 
 info = {
     "class_name": "DiscordInput",
@@ -133,26 +137,38 @@ info = {
 
 
 class DiscordInput(DiscordBase):
+    discord_receiver_queue: queue.Queue[DiscordMessage]
+
     def __init__(self, **kwargs):
         super().__init__(info, **kwargs)
-        self.discord_receiver_queue = None
-        self.discord_receiver = None
         self.init_discord_receiver()
 
     def init_discord_receiver(self):
         # Create a queue to get messages from the Discord receiver
         self.discord_receiver_queue = queue.Queue()
         self.stop_receiver_event = threading.Event()
+
+        max_file_size = self.get_config("max_file_size")
+        max_total_file_size = self.get_config("max_total_file_size")
+        listen_to_channels = self.get_config("listen_to_channels")
+        send_history_on_join = self.get_config("send_history_on_join")
+        acknowledgement_message = self.get_config("acknowledgement_message")
+
+        assert isinstance(max_file_size, int), "max_file_size must be an int"
+        assert isinstance(max_total_file_size, int), "max_total_file_size must be an int"
+        assert isinstance(listen_to_channels, bool), "listen_to_channels must be a bool"
+        assert isinstance(send_history_on_join, bool), "send_history_on_join must be a bool"
+
         self.discord_receiver = DiscordReceiver(
             app=self.app,
             discord_bot_token=self.discord_bot_token,
             input_queue=self.discord_receiver_queue,
             stop_event=self.stop_receiver_event,
-            max_file_size=self.get_config("max_file_size"),
-            max_total_file_size=self.get_config("max_total_file_size"),
-            listen_to_channels=self.get_config("listen_to_channels"),
-            send_history_on_join=self.get_config("send_history_on_join"),
-            acknowledgement_message=self.get_config("acknowledgement_message"),
+            max_file_size=max_file_size,
+            max_total_file_size=max_total_file_size,
+            listen_to_channels=listen_to_channels,
+            send_history_on_join=send_history_on_join,
+            acknowledgement_message=acknowledgement_message,
         )
         self.discord_receiver.start()
 
@@ -175,7 +191,7 @@ class DiscordInput(DiscordBase):
 class DiscordReceiver(threading.Thread):
     def __init__(
         self,
-        app,
+        app: Client,
         discord_bot_token,
         input_queue,
         stop_event,
@@ -198,139 +214,85 @@ class DiscordReceiver(threading.Thread):
         self.register_handlers()
 
     def run(self):
-        self.app.login(self.discord_bot_token)
+        self.app.run(self.discord_bot_token)
         self.stop_event.wait()
 
-    def handle_channel_event(self, event):
-        # For now, just do the normal handling
-        channel_name = self.get_channel_name(event.get("channel"))
-        event["channel_name"] = channel_name
-
-        self.handle_event(event)
-
-    def handle_group_event(self, _event):
-        log.info("Received a private group event. Ignoring.")
-
-    def handle_event(self, event):
+    async def handle_event(self, message: DiscordMessage):
         files = []
         total_file_size = 0
-        if "files" in event:
-            for file in event["files"]:
-                file_url = file["url_private"]
-                file_name = file["name"]
-                size = file["size"]
-                total_file_size += size
-                if size > self.max_file_size * 1024 * 1024:
-                    log.warning(
-                        "File %s is too large to download. Skipping download.",
-                        file_name,
-                    )
-                    continue
-                if total_file_size > self.max_total_file_size * 1024 * 1024:
-                    log.warning(
-                        "Total file size exceeds the maximum limit. Skipping download."
-                    )
-                    break
-                b64_file = self.download_file_as_base64_string(file_url)
-                files.append(
-                    {
-                        "name": file_name,
-                        "content": b64_file,
-                        "mime_type": file["mimetype"],
-                        "filetype": file["filetype"],
-                        "size": size,
-                    }
+
+        for attachment in message.attachments:
+            attachment_url = attachment.url
+            attachment_name = attachment.filename
+            size = attachment.size
+            total_file_size += size
+            if size > self.max_file_size * 1024 * 1024:
+                log.warning(
+                    "Attachment %s is too large to download. Skipping download.",
+                    attachment_name,
                 )
-
-        team_domain = None
-        try:
-            permalink = self.app.client.chat_getPermalink(
-                channel=event["channel"], message_ts=event["event_ts"]
+                continue
+            if total_file_size > self.max_total_file_size * 1024 * 1024:
+                log.warning(
+                    "Total file size exceeds the maximum limit. Skipping download."
+                )
+                break
+            b64_file = self.download_file_as_base64_string(attachment_url)
+            files.append(
+                {
+                    "name": attachment_name,
+                    "content": b64_file,
+                    "mime_type": attachment.content_type,
+                    "filetype": attachment.content_type,
+                    "size": size,
+                }
             )
-            team_domain = permalink.get("permalink", "").split("//")[1]
-            team_domain = team_domain.split(".")[0]
-        except Exception as e:
-            log.error("Error getting team domain: %s", e)
 
-        user_email = self.get_user_email(event.get("user"))
-        (text, mention_emails) = self.process_text_for_mentions(event["text"])
+        team_domain = message.guild.name if message.guild else message.author.name
 
-        # Determine the reply_to thread to put in the message
-        if (
-            event.get("channel_type") == "im"
-            and event.get("subtype", event.get("type")) == "app_mention"
-        ):
-            # First message uses ts, subsequent messages use thread_ts
-            reply_to = event.get("thread_ts") or event.get("ts")
+        user_id = message.author.id
+        text = message.clean_content
+
+        is_thread = message.channel.type in [ChannelType.public_thread, ChannelType.private_thread]
+
+        if is_thread:
+            thread_id = message.channel.id
         else:
-            # First message uses ts, subsequent messages use thread_ts
-            # thread_ts is null in direct messages
-            reply_to = event.get("thread_ts")
-
-        if reply_to:
-            thread_id = f"{event.get('channel')}_{reply_to}"
-        else:
-            thread_id = event.get("channel")
+            thread = await message.create_thread(name=trunc(message.clean_content, 20))
+            thread_id = thread.id
 
         payload = {
             "text": text,
             "files": files,
-            "user_email": user_email,
-            "team_id": event.get("team"),
             "team_domain": team_domain,
-            "mentions": mention_emails,
-            "type": event.get("type"),
-            "client_msg_id": event.get("client_msg_id"),
-            "ts": event.get("ts"),
-            "channel": event.get("channel"),
-            "channel_name": event.get("channel_name", ""),
-            "subtype": event.get("subtype"),
-            "event_ts": event.get("event_ts"),
-            "thread_ts": event.get("thread_ts"),
-            "channel_type": event.get("channel_type"),
-            "user_id": event.get("user"),
+            "client_msg_id": message.id,
+            "ts": message.created_at,
+            "channel": message.channel.id,
+            "channel_name": message.author.name if isinstance(message.channel, (DMChannel, PartialMessageable)) else message.channel.name,
+            "event_ts": message.created_at,
+            "thread_ts": message.channel.created_at if is_thread else message.created_at,
+            "channel_type": str(message.channel.type),
+            "user_id": user_id,
             "thread_id": thread_id,
-            "reply_to_thread": reply_to,
+            "reply_to_thread": thread_id,
         }
         user_properties = {
-            "user_email": user_email,
-            "team_id": event.get("team"),
-            "type": event.get("type"),
-            "client_msg_id": event.get("client_msg_id"),
-            "ts": event.get("ts"),
-            "thread_ts": event.get("thread_ts"),
-            "channel": event.get("channel"),
-            "subtype": event.get("subtype"),
-            "event_ts": event.get("event_ts"),
-            "channel_type": event.get("channel_type"),
-            "user_id": event.get("user"),
+            "username": message.author.name,
+            "client_msg_id": message.id,
+            "ts": message.created_at,
+            "thread_ts": message.channel.created_at if is_thread else message.created_at,
+            "channel": message.channel.id,
+            "event_ts": message.created_at,
+            "channel_type": str(message.channel.type),
+            "user_id": user_id,
             "input_type": "discord",
             "thread_id": thread_id,
-            "reply_to_thread": reply_to,
+            "reply_to_thread": thread_id,
         }
 
-        if self.acknowledgement_message and event.get("channel_type") == "im":
-            ack_msg_ts = self.app.client.chat_postMessage(
-                channel=event["channel"],
-                text=self.acknowledgement_message,
-                blocks=[
-                    {
-                        "type": "context",
-                        "elements": [
-                            {
-                                "type": "mrkdwn",
-                                "text": self.acknowledgement_message,
-                            }
-                        ],
-                    }
-                ],
-                thread_ts=reply_to,
-            ).get("ts")
-            user_properties["ack_msg_ts"] = ack_msg_ts
-
-        message = Message(payload=payload, user_properties=user_properties)
-        message.set_previous(payload)
-        self.input_queue.put(message)
+        solace_message = Message(payload=payload, user_properties=user_properties)
+        solace_message.set_previous(payload)
+        self.input_queue.put(solace_message)
 
     def download_file_as_base64_string(self, file_url):
         headers = {"Authorization": "Bearer " + self.discord_bot_token}
@@ -338,61 +300,28 @@ class DiscordReceiver(threading.Thread):
         base64_string = base64.b64encode(response.content).decode("utf-8")
         return base64_string
 
-    def get_user_email(self, user_id):
-        response = self.app.client.users_info(user=user_id)
-        return response["user"]["profile"].get("email", user_id)
-
-    def process_text_for_mentions(self, text):
-        mention_emails = []
-        if "<@" not in text:
-            return text, mention_emails
-        for mention in text.split("<@"):
-            if mention.startswith("!"):
-                mention = mention[1:]
-            if mention.startswith("U"):
-                user_id = mention.split(">")[0]
-                response = self.app.client.users_info(user=user_id)
-                profile = response.get("user", {}).get("profile")
-                if profile:
-                    replacement = profile.get(
-                        "email", "<@" + profile.get("real_name_normalized") + ">"
-                    )
-                    mention_emails.append(replacement)
-                    text = text.replace(
-                        f"<@{user_id}>",
-                        replacement,
-                    )
-        return text, mention_emails
-
-    def get_channel_name(self, channel_id):
-        response = self.app.client.conversations_info(channel=channel_id)
-        return response["channel"].get("name")
-
-    def get_channel_history(self, channel_id, team_id):
-        response = self.app.client.conversations_history(channel=channel_id)
+    async def get_channel_history(self, channel_id: int):
+        pass # what's the point?
+        '''
+        channel = self.app.get_channel(channel_id)
+        if not channel or not isinstance(channel, TextChannel):
+            return []
 
         # First search through messages to get all their replies
         messages_to_add = []
-        for message in response["messages"]:
+        async for message in channel.history(limit=200):
             if "subtype" not in message and "text" in message:
                 if "reply_count" in message:
                     # Get the replies
-                    replies = self.app.client.conversations_replies(
-                        channel=channel_id, ts=message.get("ts")
-                    )
+                    replies = self.app.get_channel(channel_id)
                     messages_to_add.extend(replies["messages"])
 
         response["messages"].extend(messages_to_add)
 
         # Go through the messages and remove any that have a sub_type
         messages = []
-        emails = {}
         for message in response["messages"]:
             if "subtype" not in message and "text" in message:
-                if message.get("user") not in emails:
-                    emails[message.get("user")] = self.get_user_email(
-                        message.get("user")
-                    )
                 payload = {
                     "text": message.get("text"),
                     "team_id": team_id,
@@ -410,41 +339,9 @@ class DiscordReceiver(threading.Thread):
                 messages.append(payload)
 
         return messages
-
-    def handle_new_channel_join(self, event):
-        """We have been added to a new channel. This will
-        get all the history and send it to the input queue."""
-        history = self.get_channel_history(event.get("channel"), event.get("team"))
-        payload = {
-            "text": "New channel joined",
-            "user_email": "",
-            "mentions": [],
-            "type": "channel_join",
-            "client_msg_id": "",
-            "ts": "",
-            "channel": event.get("channel"),
-            "subtype": "channel_join",
-            "event_ts": "",
-            "channel_type": "channel",
-            "channel_name": self.get_channel_name(event.get("channel")),
-            "user_id": "",
-            "history": history,
-        }
-        user_properties = {
-            "type": "channel_join",
-            "channel": event.get("channel"),
-            "subtype": "channel_join",
-            "channel_type": "channel",
-        }
-        message = Message(payload=payload, user_properties=user_properties)
-        message.set_previous(payload)
-        self.input_queue.put(message)
+    '''
 
     def register_handlers(self):
         @self.app.event
-        def on_message(message):
-            print("got message", message)
-            
-        @self.app.event
-        def on_ready():
-            print("ready!")
+        async def on_message(message: DiscordMessage):
+            await self.handle_event(message)

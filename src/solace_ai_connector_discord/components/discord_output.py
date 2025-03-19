@@ -7,6 +7,8 @@ from prettytable import PrettyTable
 
 from solace_ai_connector.common.log import log
 from .discord_base import DiscordBase
+from discord import TextChannel, File, ButtonStyle
+from discord.ui import Button, View
 
 
 info = {
@@ -175,7 +177,7 @@ class DiscordOutput(DiscordBase):
             "feedback_data": feedback_data,
         }
 
-    def send_message(self, message):
+    async def send_message(self, message):
         try:
             channel = message.get_data("previous:channel")
             messages = message.get_data("previous:text")
@@ -196,89 +198,31 @@ class DiscordOutput(DiscordBase):
                 else:
                     messages = []
 
+            text_channel = self.app.get_channel(channel)
+            if not isinstance(text_channel, TextChannel):
+              return
+
+            sent_message = await text_channel.send("\u200b")
+
             for index, text in enumerate(messages):
                 if not text or not isinstance(text, str):
                     continue
 
-                if self.fix_formatting:
-                    text = self.fix_markdown(text)
+                await sent_message.edit(content=text)
 
-                if index != 0:
-                    text = "\n" + text
-
-                if first_chunk:
-                    streaming_state = self.add_streaming_state(uuid)
-                else:
-                    streaming_state = self.get_streaming_state(uuid)
-                    if not streaming_state:
-                        streaming_state = self.add_streaming_state(uuid)
-
-                if streaming:
-                    if streaming_state.get("completed"):
-                        # We can sometimes get a message after the stream has completed
-                        continue
-
-                    streaming_state["completed"] = last_chunk
-                    ts = streaming_state.get("ts")
-                    if status_update:
-                        blocks = [
-                            {
-                                "type": "context",
-                                "elements": [
-                                    {
-                                        "type": "mrkdwn",
-                                        "text": text,
-                                    }
-                                ],
-                            },
-                        ]
-
-                        if not ts:
-                            ts = ack_msg_ts
-                        try:
-                            self.app.client.chat_update(
-                                channel=channel, ts=ts, text="test", blocks=blocks
-                            )
-                        except Exception:
-                            pass
-                    elif ts:
-                        try:
-                            self.app.client.chat_update(
-                                channel=channel, ts=ts, text=text
-                            )
-                        except Exception:
-                            # It is normal to possibly get an update after the final
-                            # message has already arrived and deleted the ack message
-                            pass
-                    else:
-                        response = self.app.client.chat_postMessage(
-                            channel=channel, text=text, thread_ts=reply_to
-                        )
-                        streaming_state["ts"] = response["ts"]
-
-                else:
-                    # Not streaming
-                    ts = streaming_state.get("ts")
-                    streaming_state["completed"] = True
-                    if not ts:
-                        self.app.client.chat_postMessage(
-                            channel=channel, text=text, thread_ts=reply_to
-                        )
+            files_to_add = []
 
             for file in files:
                 file_content = base64.b64decode(file["content"])
-                self.app.client.files_upload_v2(
-                    channel=channel,
-                    file=file_content,
-                    thread_ts=reply_to,
-                    filename=file["name"],
-                )
+                files_to_add.append(File(fp=file_content, filename=file["name"]))
+            
+            if files_to_add:
+                await sent_message.add_files(*files_to_add)
 
             if streaming and response_complete and self.feedback_enabled:
-                blocks = self.create_feedback_blocks(feedback_data, channel, reply_to)
-                response = self.app.client.chat_postMessage(
-                    channel=channel, text="feedback", thread_ts=reply_to, blocks=blocks
-                )
+                view = self.create_feedback_view()
+
+                await sent_message.edit(view=view)
 
 
         except Exception as e:
@@ -348,42 +292,12 @@ class DiscordOutput(DiscordBase):
         return re.sub(pattern, markdown_to_fixed_width, message)
 
     @staticmethod
-    def create_feedback_blocks(value_object, channel, thread_ts):
-        feedback_data = {
-            "channel": channel,
-            "thread_ts": thread_ts,
-            "feedback_data": value_object
-        }
+    def create_feedback_view() -> View:
+        thumbsup_button = Button(label="👍", style=ButtonStyle.green, custom_id="thumbs_up")
+        thumbsdown_button = Button(label="👎", style=ButtonStyle.red, custom_id="thumbs_down")
 
-        # Create a unique id for the feedback block_id (max 8 characters)
-        block_id = "thumbs_up_down" + str(hash(str(feedback_data)))[-8:]
-        feedback_data["feedback_data"]["block_id"] = block_id
+        view = View()
+        view.add_item(thumbsup_button)
+        view.add_item(thumbsdown_button)
 
-        return [
-            {
-                "type": "actions",
-                "block_id": block_id,
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "emoji": True,
-                            "text": "👍"
-                        },
-                        "value": json.dumps(feedback_data),
-                        "action_id": "thumbs_up_action"
-                    },
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "emoji": True,
-                            "text": "👎"
-                        },
-                        "value": json.dumps(feedback_data),
-                        "action_id": "thumbs_down_action"
-                    }
-                ],
-            }
-        ]
+        return view
