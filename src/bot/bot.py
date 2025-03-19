@@ -1,8 +1,10 @@
 import os
-from discord import Intents, Client, Interaction, Message, ChannelType, ButtonStyle, InteractionType
+import discord
+from discord import Intents, Client, Interaction, Message, ChannelType, ButtonStyle, InteractionType, app_commands
 from discord.ui import Button, View
+from discord.ext import commands
 
-client = Client(intents=Intents.none())
+client = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 
 def trunc(text: str, max: int = 20):
   return text[:max] if len(text) > max else text
@@ -48,5 +50,19 @@ async def on_message(message: Message):
   else:
     thread = await message.create_thread(name=trunc(message.clean_content))
     await thread.send("hello world", view=view)
+
+@client.event
+async def syncCommands():
+  try:
+    s = await client.tree.sync()
+    print(f"Synced {len(s)} commands")
+  except Exception as e:
+    print(e)
+
+
+@client.tree.command(name = "help")
+async def help(interaction: discord.Interaction):
+  await interaction.response.send_message(f"Hi {interaction.user.mention}, I'm SollyChat!", ephemeral=True)
+
 
 client.run(os.getenv('DISCORD_TOKEN') or exit(-123))
