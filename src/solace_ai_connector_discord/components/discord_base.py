@@ -34,13 +34,9 @@ class DiscordBase(ComponentBase, ABC):
         #We should run the register action handlers function (temporary, this will be called by DiscordOutput)
         self.register_action_handlers()
 
-    def run(self):
-        print("[grep] starting")
-        print(self.discord_bot_token)
-        super().run()
-
     @abstractmethod
     def invoke(self, message, data):
+        print("some invoke")
         pass
 
     def __str__(self):

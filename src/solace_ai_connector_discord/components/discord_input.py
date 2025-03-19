@@ -172,6 +172,7 @@ class DiscordInput(DiscordBase):
         return message
 
     def invoke(self, _message, data):
+        print("invoked on input? ", data)
         return data
 
 
@@ -202,7 +203,6 @@ class DiscordReceiver(threading.Thread):
 
     def run(self):
         self.app.run(self.discord_bot_token)
-        super().run()
         self.stop_event.wait()
 
     async def handle_event(self, message: DiscordMessage):
@@ -255,7 +255,7 @@ class DiscordReceiver(threading.Thread):
             "team_domain": team_domain,
             "client_msg_id": message.id,
             "ts": message.created_at.timestamp(),
-            "channel": message.channel.id,
+            "channel": thread_id,
             "channel_name": message.author.name if isinstance(message.channel, (DMChannel, PartialMessageable)) else message.channel.name,
             "event_ts": message.created_at.timestamp(),
             "thread_ts": message.channel.created_at.timestamp() if is_thread and message.channel.created_at else message.created_at.timestamp(),
@@ -269,7 +269,7 @@ class DiscordReceiver(threading.Thread):
             "client_msg_id": message.id,
             "ts": message.created_at.timestamp(),
             "thread_ts": message.channel.created_at.timestamp() if is_thread and message.channel.created_at else message.created_at.timestamp(),
-            "channel": message.channel.id,
+            "channel": thread_id,
             "event_ts": message.created_at.timestamp(),
             "channel_type": str(message.channel.type),
             "user_id": user_id,

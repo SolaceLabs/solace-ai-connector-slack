@@ -14,15 +14,15 @@
     configuration: {}
 
 - gateway_config: &gateway_config
-    gateway_id: {{GATEWAY_ID}}
+    gateway_id: discord
     system_purpose: >
-      The system is an AI Chatbot with agentic capabilities. It will use the agents available to provide information, reasoning and general assistance for the users in this system.      
-        
+      The system is an AI Chatbot with agentic capabilities. It will use the agents available to provide information, reasoning and general assistance for the users in this system.
+
     interaction_type: "interactive"
 
     identity:
       <<: *default_identity_config
 
     retain_history: true
-    history_config: 
+    history_config:
       <<: *default_history_policy

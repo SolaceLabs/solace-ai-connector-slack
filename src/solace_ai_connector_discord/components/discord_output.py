@@ -2,12 +2,15 @@ import base64
 import re
 import json
 from datetime import datetime
+import threading
+import queue
+import asyncio
 
 from prettytable import PrettyTable
 
 from solace_ai_connector.common.log import log
 from .discord_base import DiscordBase
-from discord import TextChannel, File, ButtonStyle
+from discord import TextChannel, File, ButtonStyle, Client, Message as DiscordMessage
 from discord.ui import Button, View
 
 
@@ -56,9 +59,6 @@ info = {
                 "type": "object",
                 "properties": {
                     "channel": {
-                        "type": "string",
-                    },
-                    "type": {
                         "type": "string",
                     },
                     "client_msg_id": {
@@ -125,13 +125,11 @@ class DiscordOutput(DiscordBase):
         self.fix_formatting = self.get_config("correct_markdown_formatting", True)
         self.streaming_state = {}
         self.register_action_handlers()
-    
-    def run(self):
-        self.app.run(self.discord_bot_token)
-        super().run()
+        self.discord_message_response_queue = queue.Queue()
+
+        DiscordSender(self.app, self.discord_bot_token, self.discord_message_response_queue, self.feedback_enabled).start()
 
     def invoke(self, message, data):
-        print("[grep2] INVOKE CALLED")
         content = data.get("content")
         message_info = data.get("message_info")
 
@@ -176,58 +174,8 @@ class DiscordOutput(DiscordBase):
             "feedback_data": feedback_data,
         }
 
-    async def send_message(self, message):
-        print('[grep2] snedm essage')
-        try:
-            channel = message.get_data("previous:channel")
-            messages = message.get_data("previous:text")
-            streaming = message.get_data("previous:streaming")
-            files = message.get_data("previous:files") or []
-            reply_to = (message.get_user_properties() or {}).get("reply_to_thread", message.get_data("previous:thread_ts"))
-            ack_msg_ts = message.get_data("previous:ack_msg_ts")
-            first_chunk = message.get_data("previous:first_chunk")
-            last_chunk = message.get_data("previous:last_chunk")
-            uuid = message.get_data("previous:uuid")
-            status_update = message.get_data("previous:status_update")
-            response_complete = message.get_data("previous:response_complete")
-            feedback_data = message.get_data("previous:feedback_data") or {}
-
-            if not isinstance(messages, list):
-                if messages is not None:
-                    messages = [messages]
-                else:
-                    messages = []
-
-            text_channel = self.app.get_channel(channel)
-            if not isinstance(text_channel, TextChannel):
-              return
-
-            sent_message = await text_channel.send("\u200b")
-
-            for index, text in enumerate(messages):
-                if not text or not isinstance(text, str):
-                    continue
-
-                await sent_message.edit(content=text)
-
-            files_to_add = []
-
-            for file in files:
-                file_content = base64.b64decode(file["content"])
-                files_to_add.append(File(fp=file_content, filename=file["name"]))
-            
-            if files_to_add:
-                await sent_message.add_files(*files_to_add)
-
-            if streaming and response_complete and self.feedback_enabled:
-                view = self.create_feedback_view()
-
-                await sent_message.edit(view=view)
-
-
-        except Exception as e:
-            log.error("Error sending discord message: %s", e)
-
+    def send_message(self, message):
+        self.discord_message_response_queue.put(message)
         super().send_message(message)
 
     def fix_markdown(self, message):
@@ -291,6 +239,26 @@ class DiscordOutput(DiscordBase):
         pattern = r"\|.*\|[\n\r]+\|[-:| ]+\|[\n\r]+((?:\|.*\|[\n\r]+)+)"
         return re.sub(pattern, markdown_to_fixed_width, message)
 
+class DiscordSender(threading.Thread):
+    def __init__(
+        self,
+        app: Client,
+        discord_bot_token,
+        input_queue: queue.Queue[DiscordMessage],
+        feedback_enabled: bool
+    ):
+        threading.Thread.__init__(self)
+        self.app = app
+        self.discord_bot_token = discord_bot_token
+        self.input_queue = input_queue
+        self.feedback_enabled = feedback_enabled
+        self.last_sent_by_uuid = {}
+        self.sent_message_by_uuid: dict[str, DiscordMessage] = {}
+        self.last_content_len_by_uuid: dict[str, int] = {}
+
+    def run(self):
+        asyncio.run(self.really_run())
+
     @staticmethod
     def create_feedback_view() -> View:
         thumbsup_button = Button(label="👍", style=ButtonStyle.green, custom_id="thumbs_up")
@@ -301,3 +269,92 @@ class DiscordOutput(DiscordBase):
         view.add_item(thumbsdown_button)
 
         return view
+
+    async def send_message(self, message):
+        print('[grep2] snedm essage')
+        try:
+            channel = message.get_data("previous:channel")
+            messages = message.get_data("previous:text")
+            streaming = message.get_data("previous:streaming")
+            files = message.get_data("previous:files") or []
+            reply_to = (message.get_user_properties() or {}).get("reply_to_thread", message.get_data("previous:thread_ts"))
+            ack_msg_ts = message.get_data("previous:ack_msg_ts")
+            first_chunk = message.get_data("previous:first_chunk")
+            last_chunk = message.get_data("previous:last_chunk")
+            uuid = message.get_data("previous:uuid")
+            status_update = message.get_data("previous:status_update")
+            response_complete = message.get_data("previous:response_complete")
+            feedback_data = message.get_data("previous:feedback_data") or {}
+
+
+            if not isinstance(messages, list):
+                if messages is not None:
+                    messages = [messages]
+                else:
+                    messages = []
+
+            print("messages: ", messages)
+            now = datetime.now().timestamp()
+            text = ""
+
+            for part in messages:
+                if not part or not isinstance(part, str):
+                    continue
+                text += part
+
+            if len(text) <= self.last_content_len_by_uuid.get(uuid, 0):
+                return
+            self.last_content_len_by_uuid[uuid] = len(text)
+
+            if last_chunk or now - self.last_sent_by_uuid.get(uuid, 0) > 3000:
+                self.last_sent_by_uuid[uuid] = now
+            else:
+                # throttle responses
+                return
+
+            text_channel = self.app.get_channel(channel)
+
+            full = text
+            if len(full) > 2000:
+                full = full[:2000]
+
+            if uuid not in self.sent_message_by_uuid:
+                sent_message = await text_channel.send(full or "\u200b")
+                self.sent_message_by_uuid[uuid] = sent_message
+            else:
+                sent_message = self.sent_message_by_uuid[uuid]
+                await sent_message.edit(content=full or "\u200b")
+
+            files_to_add = []
+
+            for file in files:
+                file_content = base64.b64decode(file["content"])
+                files_to_add.append(File(fp=file_content, filename=file["name"]))
+
+            if files_to_add:
+                await sent_message.add_files(*files_to_add)
+
+            if streaming and response_complete and self.feedback_enabled:
+                view = self.create_feedback_view()
+                await sent_message.edit(view=view)
+
+        except Exception as e:
+            log.error("Error sending discord message: %s", e)
+            raise e
+
+    async def really_run(self):
+        await self.app.login(self.discord_bot_token)
+
+        print("[GZ] gooo")
+
+        asyncio.create_task(self.do_messages())
+
+        await self.app.connect()
+    
+    async def do_messages(self):
+        while True:
+            try:
+                message = self.input_queue.get_nowait()
+                asyncio.create_task(self.send_message(message))
+            except queue.Empty:
+                await asyncio.sleep(0.01)
