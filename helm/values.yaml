@@ -1,0 +1,107 @@
+# Default values for Solace Agent configuration
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Namespace for the Solace agent mesh
+# Default: none
+solaceAgentMeshNamespace: <>
+
+# Enable development mode for the Solace agent
+# Default: true
+solaceDevMode: <>
+
+# WebSocket URL for the Solace message broker
+# Assumes you are hosting broker locally. Default: ws://localhost:8008
+solaceBrokerUrl: <>
+
+# Message VPN name for the Solace broker
+# Default: default
+solaceBrokerVpn: <>
+
+# Username for authenticating with the Solace broker
+# Default: default
+solaceBrokerUsername: <>
+
+# Password for authenticating with the Solace broker
+# Default: default
+solaceBrokerPassword: <>
+
+# API key for the LLM service
+# Default: sk-0isVlL8ZSj142uLAEtsyVw
+llmServiceApiKey: <>
+
+# Endpoint URL for the LLM service
+# Default: https://lite-llm.mymaas.net/
+llmServiceEndpoint: <>
+
+# Model name for LLM planning operations
+# Default: openai/claude-3-7-sonnet
+llmServicePlanningModelName: <>
+
+# Model name for embedding service
+# Default: openai/bedrock-cohere-embed-english-v3
+embeddingServiceModelName: <>
+
+# API key for the embedding service
+# Default: sk-0isVlL8ZSj142uLAEtsyVw
+embeddingServiceApiKey: <>
+
+# Endpoint URL for the embedding service
+# Default: https://lite-llm.mymaas.net/
+embeddingServiceEndpoint: <>
+
+# Path to the runtime configuration file
+# Default: build/config.yaml
+runtimeConfigPath: <>
+
+# Port for the REST API server input
+# Default: 5050
+restApiServerInputPort: <>
+
+# Host address for the REST API server
+# Default: 127.0.0.1
+restApiServerHost: <>
+
+# Endpoint path for the REST API server input
+# Default: /api/v1/request
+restApiServerInputEndpoint: <>
+
+# Enable or disable the web UI
+# Default: True
+webuiEnabled: <>
+
+# Port for the web UI
+# Default: 5001
+webuiPort: <>
+
+# Host address for the web UI
+# Default: 127.0.0.1
+webuiHost: <>
+
+# URL for the web UI response API
+# Default: http://127.0.0.1:5050/api/v1/request
+webuiResponseApiUrl: <>
+
+# URL for the web UI frontend server
+# Default: http://127.0.0.1:5001
+webuiFrontendServerUrl: <>
+
+# URL for the web UI frontend
+# Default: http://127.0.0.1:5001
+webuiFrontendUrl: <>
+
+# Discord bot token for integration with Discord
+# Default: none
+discordBotToken: <>
+
+# K8s namespace for deployment
+# Default: default
+kubernetesNamespace: <>
+
+# K8s name for deployment
+# Default: solace-agent-mesh
+kubernetesDeploymentName: <>
+
+image: <>
+
+imageTag: <>

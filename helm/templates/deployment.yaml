@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "{{.Values.kubernetesDeploymentName}}"
+  labels:
+    app: "{{.Values.kubernetesDeploymentName}}"
+spec:
+  replicas: 1  # Adjust based on load
+  selector:
+    matchLabels:
+      app: "{{.Values.kubernetesDeploymentName}}"
+  template:
+    metadata:
+      labels:
+        app: "{{.Values.kubernetesDeploymentName}}"
+    spec:
+      containers:
+        - name: "{{.Values.kubernetesDeploymentName}}"
+          image: "{{.Values.image}}:{{.Values.imageTag}}""
+          
+          envFrom:
+          - secretRef:
+              name: "{{.Values.kubernetesDeploymentName}}-secrets" # Configure secrets in a Kubernetes Secret
+
+          command: ["sam", "run"]
+          args:
+            - "-eb"
+
+          volumeMounts:
+            - name: shared-storage
+              mountPath: /tmp/solace-agent-mesh
+      volumes:
+        - name: shared-storage
+          emptyDir: {}
