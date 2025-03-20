@@ -1,9 +1,0 @@
-
-New request from 314566854376947725:
-    @solace what is 1 + 6
-
-New request from 314566854376947725:
-    now add 4 to that result
-
-New request from 314566854376947725:
-    @solace what is 10 + 10
