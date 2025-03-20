@@ -338,7 +338,7 @@ class DiscordReceiver(threading.Thread):
                 return
             if not self.app.user:
                 return
-            
+
             if isinstance(message.channel, Thread) and isinstance(message.channel.parent, TextChannel):
                 if "I am satisfied with my care" in message.content:
                   return await message.channel.delete()

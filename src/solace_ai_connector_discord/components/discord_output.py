@@ -11,10 +11,12 @@ from collections import defaultdict
 from prettytable import PrettyTable
 
 from solace_ai_connector.common.log import log
-from .discord_base import DiscordBase
+from .discord_base import DiscordBase, FeedbackEndpoint
 from discord import TextChannel, File, ButtonStyle, Message as DiscordMessage, Interaction, InteractionType, ComponentType, Thread
+from discord.context_managers import Typing
 from discord.ui import Button, View, Modal, TextInput
 from discord.ext.commands import Bot
+import requests
 
 
 info = {
@@ -129,7 +131,12 @@ class DiscordOutput(DiscordBase):
         self.streaming_state = {}
         self.discord_message_response_queue = queue.Queue()
 
-        DiscordSender(self.app, self.discord_bot_token, self.discord_message_response_queue, self.feedback_enabled).start()
+        DiscordSender(
+            app=self.app,
+            discord_bot_token=self.discord_bot_token,
+            input_queue=self.discord_message_response_queue,
+            feedback_endpoint=self.feedback_endpoint
+        ).start()
 
     def invoke(self, message, data):
         content = data.get("content")
@@ -241,7 +248,10 @@ class DiscordOutput(DiscordBase):
         pattern = r"\|.*\|[\n\r]+\|[-:| ]+\|[\n\r]+((?:\|.*\|[\n\r]+)+)"
         return re.sub(pattern, markdown_to_fixed_width, message)
 
+@dataclass(slots=True)
 class Feedback(Modal, title=''):
+    endpoint: FeedbackEndpoint
+
     feedback = TextInput(
         label='Feedback',
         placeholder='How can we improve this response?',
@@ -252,15 +262,42 @@ class Feedback(Modal, title=''):
     async def on_submit(self, interaction: Interaction):
         await interaction.response.send_message(f'Thanks for your feedback, {interaction.user.mention}!', ephemeral=True)
 
+        rest_body = {
+            "user": interaction.user.id,
+            "feedback": self.feedback.value,
+            "interface": "discord",
+            "interface_data": {
+                "channel": interaction.channel_id
+            },
+            "data": "{}"
+        }
+
+        if self.feedback.value:
+            rest_body["feedback_reason"] = self.feedback.value
+
+        try:
+            requests.post(
+                url=self.endpoint.url,
+                headers=self.endpoint.headers,
+                data=json.dumps(rest_body)
+            )
+        except Exception as e:
+            print(f"Failed to post feedback: {str(e)}")
+
     async def on_error(self, interaction: Interaction, error: Exception) -> None:
         await interaction.response.send_message('Oops! Something went wrong.', ephemeral=True)
 
 @dataclass(slots=True)
+class ActiveState:
+    message: DiscordMessage
+    typing: Typing
+
+@dataclass(slots=True)
 class State:
     text: str
-    message: DiscordMessage | None
     last_edit: float
     lock: asyncio.Lock
+    active: ActiveState | None
 
 class DiscordSender(threading.Thread):
     def __init__(
@@ -268,13 +305,13 @@ class DiscordSender(threading.Thread):
         app: Bot,
         discord_bot_token,
         input_queue: queue.Queue[DiscordMessage],
-        feedback_enabled: bool
+        feedback_endpoint: FeedbackEndpoint | None
     ):
         threading.Thread.__init__(self)
         self.app = app
         self.discord_bot_token = discord_bot_token
         self.input_queue = input_queue
-        self.feedback_enabled = feedback_enabled
+        self.feedback_endpoint = feedback_endpoint
         self.state_by_uuid: dict[str, State] = {}
 
     def run(self):
@@ -290,12 +327,12 @@ class DiscordSender(threading.Thread):
         view.add_item(thumbsdown_button)
 
         return view
-    
+
     async def send_message(self, message):
         uuid = message.get_data("previous:uuid")
 
         if uuid not in self.state_by_uuid:
-            self.state_by_uuid[uuid] = state = State(text="", message=None, last_edit=0, lock=asyncio.Lock())
+            self.state_by_uuid[uuid] = state = State(text="", last_edit=0, lock=asyncio.Lock(), active=None)
         else:
             state = self.state_by_uuid[uuid]
 
@@ -336,17 +373,23 @@ class DiscordSender(threading.Thread):
             text_channel = self.app.get_channel(channel)
             if not isinstance(text_channel, (TextChannel, Thread)):
                 return
+            
+            text_channel.typing()
 
             full = text or "\u200b"
             if len(full) > 2000:
                 full = full[:2000]
 
-            view = self.create_feedback_view() if response_complete else None
+            view = self.create_feedback_view() if response_complete and self.feedback_endpoint is not None else None
 
-            if not state.message:
-                state.message = await text_channel.send(full, view=view) if view else await text_channel.send(full)
+            if not state.active:
+                sent_message = await text_channel.send(full, view=view) if view else await text_channel.send(full)
+                state.active = ActiveState(
+                    message=sent_message,
+                    typing=text_channel.typing()
+                )
             else:
-                await state.message.edit(content=full, view=view)
+                await state.active.message.edit(content=full, view=view)
 
             files_to_add = []
 
@@ -355,7 +398,7 @@ class DiscordSender(threading.Thread):
                 files_to_add.append(File(fp=file_content, filename=file["name"]))
 
             if files_to_add:
-                await state.message.add_files(*files_to_add)
+                await state.active.message.add_files(*files_to_add)
 
         except Exception as e:
             log.error("Error sending discord message: %s", e)
@@ -408,4 +451,7 @@ class DiscordSender(threading.Thread):
         await interaction.response.send_message("You clicked thumbs up!", ephemeral=True)
 
     async def thumbs_down_callback(self, interaction: Interaction):
-        await interaction.response.send_modal(Feedback())
+        assert self.feedback_endpoint is not None
+
+        await interaction.response.send_modal(Feedback(
+            endpoint=self.feedback_endpoint))

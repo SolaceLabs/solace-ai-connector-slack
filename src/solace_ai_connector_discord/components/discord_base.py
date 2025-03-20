@@ -2,12 +2,16 @@
 
 from abc import ABC, abstractmethod
 import json
-import os
+from dataclasses import dataclass
     
-from discord import Intents, Interaction,  InteractionType, ComponentType
+from discord import Intents
 from discord.ext.commands import Bot
 from solace_ai_connector.components.component_base import ComponentBase
 
+@dataclass(slots=True)
+class FeedbackEndpoint:
+    url: str
+    headers: dict[str, str]
 
 class DiscordBase(ComponentBase, ABC):
     _discord_apps = {}
@@ -19,25 +23,30 @@ class DiscordBase(ComponentBase, ABC):
         max_file_size = self.get_config("max_file_size", 20)
         max_total_file_size = self.get_config("max_total_file_size", 20)
         feedback_enabled = self.get_config("feedback", False)
-        feedback_post_url = self.get_config("feedback_post_url", None)
-        feedback_post_headers = self.get_config("feedback_post_headers", {})
         command_prefix = self.get_config("command_prefix", "!")
 
         assert isinstance(discord_bot_token, str), "discord_bot_token must be a str"
         assert isinstance(max_file_size, int), "max_file_size must be an int"
         assert isinstance(max_total_file_size, int), "max_total_file_size must be an int"
         assert isinstance(feedback_enabled, bool), "feedback_enabled must be a bool"
+
         if feedback_enabled:
+            feedback_post_url = self.get_config("feedback_post_url", None)
+            feedback_post_headers = self.get_config("feedback_post_headers", {})
+
             assert isinstance(feedback_post_url, str), "feedback_post_url must be a str"
-            assert isinstance(feedback_post_headers, str), "feedback_post_headers must be a str"
+            assert isinstance(feedback_post_headers, dict), "feedback_post_headers must be a str"
+            
+            feedback_endpoint = FeedbackEndpoint(url=feedback_post_url, headers=feedback_post_headers)
+        else:
+            feedback_endpoint = None
+
         assert isinstance(command_prefix, str), "command_prefix must be a str"
 
         self.discord_bot_token = discord_bot_token
         self.max_file_size = max_file_size
         self.max_total_file_size = max_total_file_size
-        self.feedback_enabled = feedback_enabled
-        self.feedback_post_url = feedback_post_url
-        self.feedback_post_headers = feedback_post_headers
+        self.feedback_endpoint = feedback_endpoint
         self.command_prefix = command_prefix
 
         bot_intents = Intents.default()
@@ -113,55 +122,6 @@ class DiscordBase(ComponentBase, ABC):
             pass
 
 
-    # def feedback_reason_handler(self, ack, body):
-    #     # Acknowledge the action request
-    #     ack()
-        
-    #     # This is a bit of a hack but discord leaves us no choice.
-    #     # The block_id is a stringified JSON object that contains the channel, thread_ts and feedback.
-    #     block_id = body['actions'][0]['block_id']
-    #     value_object = json.loads(block_id)
-    #     channel = value_object.get("channel", None)
-    #     thread_ts = value_object.get("thread_ts", None)
-    #     user_id = body['user']['id']
-    #     feedback = value_object.get("feedback", "thumbs_down")
-        
-    #     # Get the input text from the input block
-    #     feedback_reason = (body
-    #         .get("state", {})
-    #         .get("values", {})
-    #         .get(block_id, {})
-    #         .get("feedback_text_reason", {})
-    #         .get("value", None)
-    #     )
-
-    #     # Get the previous message in the thread with the block_id
-    #     prev_message_ts = self._find_previous_message(thread_ts, channel, block_id)
-
-    #     thanks_message_block = DiscordBase._create_feedback_thanks_block(user_id, feedback)
-    #     if prev_message_ts is None:
-    #         # We couldn't find the previous message
-    #         # Just add a new message with a thank you message
-    #         self.app.client.chat_postMessage(
-    #             channel=channel,
-    #             thread_ts=thread_ts,
-    #             text="Thanks!",
-    #             blocks=[thanks_message_block]
-    #         )
-    #     else:
-    #         # Overwrite the previous message with a thank you message
-    #         self.app.client.chat_update(
-    #             channel=channel,
-    #             ts=prev_message_ts,
-    #             text="Thanks",  # Fallback text
-    #             blocks=[thanks_message_block]
-    #         )
-
-    #     self._send_feedback_rest_post(body, feedback, feedback_reason, value_object.get("feedback_data", "no feedback provided"))       
-    pass
-
-
-    
     def _find_previous_message(self, thread_ts, channel, block_id):
         # """Find a previous message in a Discord conversation or thread based on a block_id.
         # This method searches through the recent message history of a Discord conversation or thread
