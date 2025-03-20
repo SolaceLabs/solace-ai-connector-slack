@@ -7,7 +7,7 @@ import requests
 from solace_ai_connector.common.message import Message
 from solace_ai_connector.common.log import log
 from .discord_base import DiscordBase
-from discord import Message as DiscordMessage, ChannelType, DMChannel, PartialMessageable, Client, Thread
+from discord import Message as DiscordMessage, ChannelType, DMChannel, PartialMessageable, Client, Thread, TextChannel
 
 def trunc(text: str, max: int = 20):
   return text[:max] if len(text) > max else text
@@ -246,7 +246,7 @@ class DiscordReceiver(threading.Thread):
         if is_thread:
             thread_id = message.channel.id
         else:
-            thread = await message.create_thread(name=trunc(message.clean_content, 20))
+            thread = await message.create_thread(name=trunc(message.clean_content, 20), auto_archive_duration=60)
             thread_id = thread.id
 
         payload = {
@@ -339,9 +339,14 @@ class DiscordReceiver(threading.Thread):
             if not self.app.user:
                 return
             
-            if isinstance(message.channel, Thread):
+            if isinstance(message.channel, Thread) and isinstance(message.channel.parent, TextChannel):
                 if "I am satisfied with my care" in message.content:
                   return await message.channel.delete()
+
+                first_message = await message.channel.parent.fetch_message(message.channel.id)
+
+                if first_message.author != message.author:
+                    return
             elif not self.app.user.mentioned_in(message):
                 return
 
