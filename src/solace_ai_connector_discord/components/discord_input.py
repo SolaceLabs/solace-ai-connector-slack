@@ -333,8 +333,14 @@ class DiscordReceiver(threading.Thread):
     def register_handlers(self):
         @self.app.event
         async def on_message(message: DiscordMessage):
+            is_thread = message.channel.type in [ChannelType.public_thread, ChannelType.private_thread]
             if message.author == self.app.user:
                 return
-            if not self.app.user or not self.app.user.mentioned_in(message):
+            if not self.app.user:
+                return
+            if not self.app.user.mentioned_in(message) and not is_thread:
+                return
+            if "I am satisfied with my care" in message.content and is_thread:
+                await message.channel.delete()
                 return
             await self.handle_event(message)
