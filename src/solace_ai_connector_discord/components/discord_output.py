@@ -11,10 +11,12 @@ from collections import defaultdict
 from prettytable import PrettyTable
 
 from solace_ai_connector.common.log import log
-from .discord_base import DiscordBase
-from discord import TextChannel, File, ButtonStyle, Message as DiscordMessage, Interaction, InteractionType, ComponentType, Thread
+from .discord_base import DiscordBase, FeedbackEndpoint
+from discord import TextChannel, File, ButtonStyle, Message as DiscordMessage, Interaction, InteractionType, ComponentType, Thread, Intents
+from discord.context_managers import Typing
 from discord.ui import Button, View, Modal, TextInput
 from discord.ext.commands import Bot
+import requests
 
 
 info = {
@@ -128,8 +130,17 @@ class DiscordOutput(DiscordBase):
         self.fix_formatting = self.get_config("correct_markdown_formatting", True)
         self.streaming_state = {}
         self.discord_message_response_queue = queue.Queue()
+        bot_intents = Intents.default()
+        bot_intents.message_content = True
 
-        DiscordSender(self.app, self.discord_bot_token, self.discord_message_response_queue, self.feedback_enabled).start()
+        self.app = Bot(command_prefix=self.command_prefix, intents=bot_intents)
+
+        DiscordSender(
+            app=self.app,
+            discord_bot_token=self.discord_bot_token,
+            input_queue=self.discord_message_response_queue,
+            feedback_endpoint=self.feedback_endpoint
+        ).start()
 
     def invoke(self, message, data):
         content = data.get("content")
@@ -241,7 +252,10 @@ class DiscordOutput(DiscordBase):
         pattern = r"\|.*\|[\n\r]+\|[-:| ]+\|[\n\r]+((?:\|.*\|[\n\r]+)+)"
         return re.sub(pattern, markdown_to_fixed_width, message)
 
+@dataclass(slots=True)
 class Feedback(Modal, title=''):
+    endpoint: FeedbackEndpoint
+
     feedback = TextInput(
         label='Feedback',
         placeholder='How can we improve this response?',
@@ -252,15 +266,44 @@ class Feedback(Modal, title=''):
     async def on_submit(self, interaction: Interaction):
         await interaction.response.send_message(f'Thanks for your feedback, {interaction.user.mention}!', ephemeral=True)
 
+        rest_body = {
+            "user": interaction.user.id,
+            "feedback": self.feedback.value,
+            "interface": "discord",
+            "interface_data": {
+                "channel": interaction.channel_id
+            },
+            "data": "{}"
+        }
+
+        if self.feedback.value:
+            rest_body["feedback_reason"] = self.feedback.value
+
+        try:
+            requests.post(
+                url=self.endpoint.url,
+                headers=self.endpoint.headers,
+                data=json.dumps(rest_body)
+            )
+        except Exception as e:
+            log.error(f"Failed to post feedback: {str(e)}")
+
     async def on_error(self, interaction: Interaction, error: Exception) -> None:
         await interaction.response.send_message('Oops! Something went wrong.', ephemeral=True)
+
+        log.error("Erro while trying to post feedback", exc_info=error)
+
+@dataclass(slots=True)
+class ActiveState:
+    message: DiscordMessage
+    typing: Typing
 
 @dataclass(slots=True)
 class State:
     text: str
-    message: DiscordMessage | None
     last_edit: float
     lock: asyncio.Lock
+    active: ActiveState | None
 
 class DiscordSender(threading.Thread):
     def __init__(
@@ -268,13 +311,13 @@ class DiscordSender(threading.Thread):
         app: Bot,
         discord_bot_token,
         input_queue: queue.Queue[DiscordMessage],
-        feedback_enabled: bool
+        feedback_endpoint: FeedbackEndpoint | None
     ):
         threading.Thread.__init__(self)
         self.app = app
         self.discord_bot_token = discord_bot_token
         self.input_queue = input_queue
-        self.feedback_enabled = feedback_enabled
+        self.feedback_endpoint = feedback_endpoint
         self.state_by_uuid: dict[str, State] = {}
 
     def run(self):
@@ -290,12 +333,12 @@ class DiscordSender(threading.Thread):
         view.add_item(thumbsdown_button)
 
         return view
-    
+
     async def send_message(self, message):
         uuid = message.get_data("previous:uuid")
 
         if uuid not in self.state_by_uuid:
-            self.state_by_uuid[uuid] = state = State(text="", message=None, last_edit=0, lock=asyncio.Lock())
+            self.state_by_uuid[uuid] = state = State(text="", last_edit=0, lock=asyncio.Lock(), active=None)
         else:
             state = self.state_by_uuid[uuid]
 
@@ -344,16 +387,20 @@ class DiscordSender(threading.Thread):
             if len(full) > 2000:
                 full = full[:2000]
 
-            view = self.create_feedback_view() if response_complete else None
+            view = self.create_feedback_view() if response_complete and self.feedback_endpoint is not None else None
             
             # Stop typing if this is the last message
             if last_chunk or response_complete:
                 await self.stop_typing(channel)
 
-            if not state.message:
-                state.message = await text_channel.send(full, view=view) if view else await text_channel.send(full)
+            if not state.active:
+                sent_message = await text_channel.send(full, view=view) if view else await text_channel.send(full)
+                state.active = ActiveState(
+                    message=sent_message,
+                    typing=text_channel.typing()
+                )
             else:
-                await state.message.edit(content=full, view=view)
+                await state.active.message.edit(content=full, view=view)
 
             files_to_add = []
 
@@ -362,7 +409,7 @@ class DiscordSender(threading.Thread):
                 files_to_add.append(File(fp=file_content, filename=file["name"]))
 
             if files_to_add:
-                await state.message.add_files(*files_to_add)
+                await state.active.message.add_files(*files_to_add)
 
         except Exception as e:
             if 'channel' in locals():
@@ -413,11 +460,53 @@ class DiscordSender(threading.Thread):
                 case "thumbs_up": await self.thumbs_up_callback(interaction)
                 case "thumbs_down": await self.thumbs_down_callback(interaction)
 
+        @self.app.tree.command(name = "help")
+        async def help(interaction: Interaction):
+            await interaction.response.send_message(f"""
+# Hello! I'm Solly Chat
+
+I'm an AI assistant with agentic capabilities designed to help you with a variety of tasks. Here's what I can do:
+
+## General Capabilities
+- Answer questions using my knowledge base
+- Have conversations on a wide range of topics
+- Provide reasoning and analysis
+- Generate creative content
+- Assist with problem-solving
+
+## Specialized Features
+
+### Document & File Handling
+- Convert various file formats (PDF, Word, Excel, HTML, CSV, PPTX, ZIP) to Markdown
+- Create and retrieve text files
+- Process file content
+
+### Data Visualization
+- Generate custom charts and graphs using Plotly
+- Create PlantUML diagrams (sequence, class, use case, activity, component, state, and timing diagrams)
+
+### Web Capabilities
+- Search the web for current information
+- Fetch and process content from websites
+- Search for news and current events
+- Find images online
+- Download external files from the web
+
+### Image Processing
+- Generate images based on text descriptions
+- Analyze and describe the content of images
+
+## How to Use Me
+Simply DM or @ me with questions or requests in natural language, and I'll use my capabilities to assist you. For complex tasks, I might break them down into steps and keep you updated on my progress.""", ephemeral=True)
+
     async def thumbs_up_callback(self, interaction: Interaction):
         await interaction.response.send_message("You clicked thumbs up!", ephemeral=True)
 
     async def thumbs_down_callback(self, interaction: Interaction):
-        await interaction.response.send_modal(Feedback())
+        assert self.feedback_endpoint is not None
+
+        await interaction.response.send_modal(Feedback(
+            endpoint=self.feedback_endpoint))
         
     async def start_typing(self, channel_id):
         """Start a typing indicator in the specified channel"""

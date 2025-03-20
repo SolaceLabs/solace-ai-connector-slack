@@ -7,7 +7,8 @@ import requests
 from solace_ai_connector.common.message import Message
 from solace_ai_connector.common.log import log
 from .discord_base import DiscordBase
-from discord import Message as DiscordMessage, ChannelType, DMChannel, PartialMessageable, Client, Thread, TextChannel
+from discord import Message as DiscordMessage, ChannelType, DMChannel, PartialMessageable, Client, Thread, TextChannel, Intents
+from discord.ext.commands import Bot
 
 def trunc(text: str, max: int = 20):
   return text[:max] if len(text) > max else text
@@ -125,7 +126,7 @@ class DiscordInput(DiscordBase):
     discord_receiver_queue: queue.Queue[DiscordMessage]
 
     def __init__(self, **kwargs):
-        super().__init__(info, **kwargs)
+        super().__init__(info, use_bot=False,  **kwargs)
         self.init_discord_receiver()
 
     def init_discord_receiver(self):
@@ -144,6 +145,10 @@ class DiscordInput(DiscordBase):
         assert isinstance(listen_to_channels, bool), "listen_to_channels must be a bool"
         assert isinstance(send_history_on_join, bool), "send_history_on_join must be a bool"
 
+        bot_intents = Intents.default()
+        bot_intents.message_content = True
+
+        self.app = Client(intents=bot_intents)
         self.discord_receiver = DiscordReceiver(
             app=self.app,
             discord_bot_token=self.discord_bot_token,
@@ -165,14 +170,9 @@ class DiscordInput(DiscordBase):
         self.discord_receiver.join()
 
     def get_next_message(self):
-        # Get the next message from the Discord receiver queue
-        print("[grep] waiting for message")
-        message = self.discord_receiver_queue.get()
-        print("[grep] got message")
-        return message
+        return self.discord_receiver_queue.get()
 
     def invoke(self, _message, data):
-        print("invoked on input? ", data)
         return data
 
 
@@ -340,7 +340,7 @@ class DiscordReceiver(threading.Thread):
                 return
             if not self.app.user:
                 return
-            
+
             if isinstance(message.channel, Thread) and isinstance(message.channel.parent, TextChannel):
                 if "I am satisfied with my care" in message.content:
                   return await message.channel.delete()
