@@ -10,7 +10,7 @@ from prettytable import PrettyTable
 
 from solace_ai_connector.common.log import log
 from .discord_base import DiscordBase
-from discord import TextChannel, File, ButtonStyle, Message as DiscordMessage, Interaction, InteractionType, ComponentType
+from discord import TextChannel, File, ButtonStyle, Message as DiscordMessage, Interaction, InteractionType, ComponentType, Thread
 from discord.ui import Button, View, Modal, TextInput
 from discord.ext.commands import Bot
 
@@ -285,7 +285,6 @@ class DiscordSender(threading.Thread):
         return view
 
     async def send_message(self, message):
-        print('[grep2] snedm essage')
         try:
             channel = message.get_data("previous:channel")
             messages = message.get_data("previous:text")
@@ -306,7 +305,6 @@ class DiscordSender(threading.Thread):
                 else:
                     messages = []
 
-            print("messages: ", messages)
             now = datetime.now().timestamp()
             text = ""
 
@@ -319,26 +317,28 @@ class DiscordSender(threading.Thread):
                 return
             self.last_content_len_by_uuid[uuid] = len(text)
 
-            if last_chunk or response_complete or now - self.last_sent_by_uuid.get(uuid, 0) > 3000:
+            # throttle responses
+            if last_chunk or response_complete or now - self.last_sent_by_uuid.get(uuid, 0) > 1_200:
                 self.last_sent_by_uuid[uuid] = now
             else:
-                # throttle responses
                 return
 
             text_channel = self.app.get_channel(channel)
+            if not isinstance(text_channel, (TextChannel, Thread)):
+                return
 
-            full = text
+            full = text or "\u200b"
             if len(full) > 2000:
                 full = full[:2000]
 
             view = self.create_feedback_view() if response_complete else None
 
             if uuid not in self.sent_message_by_uuid:
-                sent_message = await text_channel.send(full or "\u200b", view=view)
+                sent_message = await text_channel.send(full, view=view) if view else await text_channel.send(full)
                 self.sent_message_by_uuid[uuid] = sent_message
             else:
                 sent_message = self.sent_message_by_uuid[uuid]
-                await sent_message.edit(content=full or "\u200b", view=view)
+                await sent_message.edit(content=full, view=view)
 
             files_to_add = []
 
@@ -355,8 +355,6 @@ class DiscordSender(threading.Thread):
 
     async def really_run(self):
         await self.app.login(self.discord_bot_token)
-
-        print("[GZ] gooo")
 
         asyncio.create_task(self.do_messages())
         self.register_action_handlers()

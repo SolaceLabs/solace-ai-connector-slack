@@ -16,18 +16,28 @@ class DiscordBase(ComponentBase, ABC):
         super().__init__(module_info, **kwargs)
 
         discord_bot_token = self.get_config("discord_bot_token")
+        max_file_size = self.get_config("max_file_size", 20)
+        max_total_file_size = self.get_config("max_total_file_size", 20)
+        feedback_enabled = self.get_config("feedback", False)
+        feedback_post_url = self.get_config("feedback_post_url", None)
+        feedback_post_headers = self.get_config("feedback_post_headers", {})
+        command_prefix = self.get_config("command_prefix", "!")
 
         assert isinstance(discord_bot_token, str), "discord_bot_token must be a str"
+        assert isinstance(max_file_size, int), "max_file_size must be a str"
+        assert isinstance(max_total_file_size, int), "max_total_file_size must be a str"
+        assert isinstance(feedback_enabled, bool), "feedback_enabled must be a str"
+        assert isinstance(feedback_post_url, str), "feedback_post_url must be a str"
+        assert isinstance(feedback_post_headers, str), "feedback_post_headers must be a str"
+        assert isinstance(command_prefix, str), "command_prefix must be a str"
 
         self.discord_bot_token = discord_bot_token
-        self.max_file_size = self.get_config("max_file_size", 20)
-        self.max_total_file_size = self.get_config("max_total_file_size", 20)
-        self.feedback_enabled = self.get_config("feedback", False)
-        self.feedback_post_url = self.get_config("feedback_post_url", None)
-        self.feedback_post_headers = self.get_config("feedback_post_headers", {})
-        self.command_prefix = self.get_config("command_prefix", "!")
-        
-        assert isinstance(self.command_prefix, str), "command_prefix must be a str"
+        self.max_file_size = max_file_size
+        self.max_total_file_size = max_total_file_size
+        self.feedback_enabled = feedback_enabled
+        self.feedback_post_url = feedback_post_url
+        self.feedback_post_headers = feedback_post_headers
+        self.command_prefix = command_prefix
 
         bot_intents = Intents.default()
         bot_intents.message_content = True
@@ -35,7 +45,6 @@ class DiscordBase(ComponentBase, ABC):
 
     @abstractmethod
     def invoke(self, message, data):
-        print("some invoke")
         pass
 
     def __str__(self):
