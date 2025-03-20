@@ -24,11 +24,12 @@ class DiscordBase(ComponentBase, ABC):
         command_prefix = self.get_config("command_prefix", "!")
 
         assert isinstance(discord_bot_token, str), "discord_bot_token must be a str"
-        assert isinstance(max_file_size, int), "max_file_size must be a str"
-        assert isinstance(max_total_file_size, int), "max_total_file_size must be a str"
-        assert isinstance(feedback_enabled, bool), "feedback_enabled must be a str"
-        assert isinstance(feedback_post_url, str), "feedback_post_url must be a str"
-        assert isinstance(feedback_post_headers, str), "feedback_post_headers must be a str"
+        assert isinstance(max_file_size, int), "max_file_size must be an int"
+        assert isinstance(max_total_file_size, int), "max_total_file_size must be an int"
+        assert isinstance(feedback_enabled, bool), "feedback_enabled must be a bool"
+        if feedback_enabled:
+            assert isinstance(feedback_post_url, str), "feedback_post_url must be a str"
+            assert isinstance(feedback_post_headers, str), "feedback_post_headers must be a str"
         assert isinstance(command_prefix, str), "command_prefix must be a str"
 
         self.discord_bot_token = discord_bot_token

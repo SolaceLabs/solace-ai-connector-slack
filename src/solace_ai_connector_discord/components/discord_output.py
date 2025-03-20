@@ -5,6 +5,8 @@ from datetime import datetime
 import threading
 import queue
 import asyncio
+from dataclasses import dataclass
+from collections import defaultdict
 
 from prettytable import PrettyTable
 
@@ -253,6 +255,13 @@ class Feedback(Modal, title=''):
     async def on_error(self, interaction: Interaction, error: Exception) -> None:
         await interaction.response.send_message('Oops! Something went wrong.', ephemeral=True)
 
+@dataclass(slots=True)
+class State:
+    text: str
+    message: DiscordMessage | None
+    last_edit: float
+    lock: asyncio.Lock
+
 class DiscordSender(threading.Thread):
     def __init__(
         self,
@@ -266,9 +275,7 @@ class DiscordSender(threading.Thread):
         self.discord_bot_token = discord_bot_token
         self.input_queue = input_queue
         self.feedback_enabled = feedback_enabled
-        self.last_sent_by_uuid = {}
-        self.sent_message_by_uuid: dict[str, DiscordMessage] = {}
-        self.last_content_len_by_uuid: dict[str, int] = {}
+        self.state_by_uuid: dict[str, State] = {}
 
     def run(self):
         asyncio.run(self.really_run())
@@ -283,21 +290,25 @@ class DiscordSender(threading.Thread):
         view.add_item(thumbsdown_button)
 
         return view
-
+    
     async def send_message(self, message):
+        uuid = message.get_data("previous:uuid")
+
+        if uuid not in self.state_by_uuid:
+            self.state_by_uuid[uuid] = state = State(text="", message=None, last_edit=0, lock=asyncio.Lock())
+        else:
+            state = self.state_by_uuid[uuid]
+
+        async with state.lock:
+            await self.__send_message(message, state)
+
+    async def __send_message(self, message, state: State):
         try:
             channel = message.get_data("previous:channel")
             messages = message.get_data("previous:text")
-            streaming = message.get_data("previous:streaming")
             files = message.get_data("previous:files") or []
-            reply_to = (message.get_user_properties() or {}).get("reply_to_thread", message.get_data("previous:thread_ts"))
-            ack_msg_ts = message.get_data("previous:ack_msg_ts")
-            first_chunk = message.get_data("previous:first_chunk")
             last_chunk = message.get_data("previous:last_chunk")
-            uuid = message.get_data("previous:uuid")
-            status_update = message.get_data("previous:status_update")
             response_complete = message.get_data("previous:response_complete")
-            feedback_data = message.get_data("previous:feedback_data") or {}
 
             if not isinstance(messages, list):
                 if messages is not None:
@@ -313,13 +324,12 @@ class DiscordSender(threading.Thread):
                     continue
                 text += part
 
-            if len(text) <= self.last_content_len_by_uuid.get(uuid, 0):
+            if len(text) <= len(state.text) and not last_chunk:
                 return
-            self.last_content_len_by_uuid[uuid] = len(text)
 
             # throttle responses
-            if last_chunk or response_complete or now - self.last_sent_by_uuid.get(uuid, 0) > 1_200:
-                self.last_sent_by_uuid[uuid] = now
+            if last_chunk or response_complete or now - state.last_edit > 1_200:
+                state.last_edit = now
             else:
                 return
 
@@ -333,12 +343,10 @@ class DiscordSender(threading.Thread):
 
             view = self.create_feedback_view() if response_complete else None
 
-            if uuid not in self.sent_message_by_uuid:
-                sent_message = await text_channel.send(full, view=view) if view else await text_channel.send(full)
-                self.sent_message_by_uuid[uuid] = sent_message
+            if not state.message:
+                state.message = await text_channel.send(full, view=view) if view else await text_channel.send(full)
             else:
-                sent_message = self.sent_message_by_uuid[uuid]
-                await sent_message.edit(content=full, view=view)
+                await state.message.edit(content=full, view=view)
 
             files_to_add = []
 
@@ -347,7 +355,7 @@ class DiscordSender(threading.Thread):
                 files_to_add.append(File(fp=file_content, filename=file["name"]))
 
             if files_to_add:
-                await sent_message.add_files(*files_to_add)
+                await state.message.add_files(*files_to_add)
 
         except Exception as e:
             log.error("Error sending discord message: %s", e)
