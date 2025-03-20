@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: "{{.Values.kubernetesDeploymentName}}"
-          image: "{{.Values.image}}:{{.Values.imageTag}}""
+          image: "{{.Values.image}}:{{.Values.imageTag}}"
           
           envFrom:
           - secretRef:
