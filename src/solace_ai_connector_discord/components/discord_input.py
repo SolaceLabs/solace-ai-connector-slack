@@ -7,8 +7,7 @@ import requests
 from solace_ai_connector.common.message import Message
 from solace_ai_connector.common.log import log
 from .discord_base import DiscordBase
-from discord import Message as DiscordMessage, ChannelType, DMChannel, PartialMessageable, Client, Thread, TextChannel, Intents
-from discord.ext.commands import Bot
+from discord import Message as DiscordMessage, DMChannel, PartialMessageable, Client, Thread, TextChannel, Intents
 
 def trunc(text: str, max: int = 20):
   return text[:max] if len(text) > max else text

@@ -6,7 +6,6 @@ import threading
 import queue
 import asyncio
 from dataclasses import dataclass
-from collections import defaultdict
 
 from prettytable import PrettyTable
 
@@ -16,7 +15,6 @@ from discord import TextChannel, File, ButtonStyle, Message as DiscordMessage, I
 from discord.context_managers import Typing
 from discord.ui import Button, View, Modal, TextInput
 from discord.ext.commands import Bot
-from discord.abc import MessageableChannel
 import requests
 
 
@@ -371,7 +369,7 @@ class DiscordSender(threading.Thread):
 
         return True
 
-    def __prepare_message(self, message, state: State) -> tuple[MessageableChannel, View | None, str] | None:
+    def __prepare_message(self, message, state: State) -> tuple[Thread | TextChannel, View | None, str] | None:
         channel = message.get_data("previous:channel")
         messages = message.get_data("previous:text")
 
