@@ -29,7 +29,9 @@ class DiscordBase(ComponentBase, ABC):
         
         assert isinstance(self.command_prefix, str), "command_prefix must be a str"
 
-        self.app = Bot(command_prefix=self.command_prefix, intents=Intents.default())
+        bot_intents = Intents.default()
+        bot_intents.message_content = True
+        self.app = Bot(command_prefix=self.command_prefix, intents=bot_intents)
 
     @abstractmethod
     def invoke(self, message, data):
