@@ -12,7 +12,7 @@ from prettytable import PrettyTable
 
 from solace_ai_connector.common.log import log
 from .discord_base import DiscordBase, FeedbackEndpoint
-from discord import TextChannel, File, ButtonStyle, Message as DiscordMessage, Interaction, InteractionType, ComponentType, Thread
+from discord import TextChannel, File, ButtonStyle, Message as DiscordMessage, Interaction, InteractionType, ComponentType, Thread, Intents
 from discord.context_managers import Typing
 from discord.ui import Button, View, Modal, TextInput
 from discord.ext.commands import Bot
@@ -130,6 +130,10 @@ class DiscordOutput(DiscordBase):
         self.fix_formatting = self.get_config("correct_markdown_formatting", True)
         self.streaming_state = {}
         self.discord_message_response_queue = queue.Queue()
+        bot_intents = Intents.default()
+        bot_intents.message_content = True
+
+        self.app = Bot(command_prefix=self.command_prefix, intents=bot_intents)
 
         DiscordSender(
             app=self.app,
@@ -282,10 +286,12 @@ class Feedback(Modal, title=''):
                 data=json.dumps(rest_body)
             )
         except Exception as e:
-            print(f"Failed to post feedback: {str(e)}")
+            log.error(f"Failed to post feedback: {str(e)}")
 
     async def on_error(self, interaction: Interaction, error: Exception) -> None:
         await interaction.response.send_message('Oops! Something went wrong.', ephemeral=True)
+
+        log.error("Erro while trying to post feedback", exc_info=error)
 
 @dataclass(slots=True)
 class ActiveState:
@@ -373,8 +379,6 @@ class DiscordSender(threading.Thread):
             text_channel = self.app.get_channel(channel)
             if not isinstance(text_channel, (TextChannel, Thread)):
                 return
-            
-            text_channel.typing()
 
             full = text or "\u200b"
             if len(full) > 2000:
