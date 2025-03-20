@@ -309,6 +309,9 @@ class DiscordSender(threading.Thread):
             files = message.get_data("previous:files") or []
             last_chunk = message.get_data("previous:last_chunk")
             response_complete = message.get_data("previous:response_complete")
+            
+            if not last_chunk and not response_complete:
+                await self.start_typing(channel)
 
             if not isinstance(messages, list):
                 if messages is not None:
@@ -342,6 +345,10 @@ class DiscordSender(threading.Thread):
                 full = full[:2000]
 
             view = self.create_feedback_view() if response_complete else None
+            
+            # Stop typing if this is the last message
+            if last_chunk or response_complete:
+                await self.stop_typing(channel)
 
             if not state.message:
                 state.message = await text_channel.send(full, view=view) if view else await text_channel.send(full)
@@ -358,6 +365,8 @@ class DiscordSender(threading.Thread):
                 await state.message.add_files(*files_to_add)
 
         except Exception as e:
+            if 'channel' in locals():
+                await self.stop_typing(channel)
             log.error("Error sending discord message: %s", e)
             raise e
 
@@ -409,3 +418,33 @@ class DiscordSender(threading.Thread):
 
     async def thumbs_down_callback(self, interaction: Interaction):
         await interaction.response.send_modal(Feedback())
+        
+    async def start_typing(self, channel_id):
+        """Start a typing indicator in the specified channel"""
+        if not hasattr(self, 'typing_tasks'):
+            self.typing_tasks = {}
+        
+        if channel_id in self.typing_tasks and not self.typing_tasks[channel_id].done():
+            return 
+        
+        channel = self.app.get_channel(channel_id)
+        if not isinstance(channel, (TextChannel, Thread)):
+            return 
+        
+        async def typing_loop():
+            try:
+                async with channel.typing():
+                    await asyncio.sleep(8)
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                log.error(f"Error in typing indicator: {e}")
+        
+        self.typing_tasks[channel_id] = asyncio.create_task(typing_loop())
+
+    async def stop_typing(self, channel_id):
+        """Stop the typing indicator in the specified channel"""
+        if hasattr(self, 'typing_tasks') and channel_id in self.typing_tasks:
+            if not self.typing_tasks[channel_id].done():
+                self.typing_tasks[channel_id].cancel()
+            del self.typing_tasks[channel_id]
