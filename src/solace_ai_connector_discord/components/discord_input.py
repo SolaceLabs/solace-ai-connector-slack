@@ -283,6 +283,8 @@ class DiscordReceiver(threading.Thread):
         solace_message = Message(payload=payload, user_properties=user_properties)
         solace_message.set_previous(payload)
         self.input_queue.put(solace_message)
+        #Start a typing animation (lasts ten seconds)
+        await message.channel.typing()
 
     def download_file_as_base64_string(self, file_url):
         headers = {"Authorization": "Bearer " + self.discord_bot_token}
