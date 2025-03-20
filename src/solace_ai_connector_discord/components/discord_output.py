@@ -16,6 +16,7 @@ from discord import TextChannel, File, ButtonStyle, Message as DiscordMessage, I
 from discord.context_managers import Typing
 from discord.ui import Button, View, Modal, TextInput
 from discord.ext.commands import Bot
+from discord.abc import MessageableChannel
 import requests
 
 
@@ -300,10 +301,11 @@ class ActiveState:
 
 @dataclass(slots=True)
 class State:
-    text: str
-    last_edit: float
-    lock: asyncio.Lock
-    active: ActiveState | None
+    text: str = ""
+    last_edit: float = 0
+    lock: asyncio.Lock = asyncio.Lock()
+    active: ActiveState | None = None
+    complete: bool = False
 
 class DiscordSender(threading.Thread):
     def __init__(
@@ -338,84 +340,102 @@ class DiscordSender(threading.Thread):
         uuid = message.get_data("previous:uuid")
 
         if uuid not in self.state_by_uuid:
-            self.state_by_uuid[uuid] = state = State(text="", last_edit=0, lock=asyncio.Lock(), active=None)
+            self.state_by_uuid[uuid] = state = State()
         else:
             state = self.state_by_uuid[uuid]
 
         async with state.lock:
-            await self.__send_message(message, state)
+            try:
+                await self.__send_message(message, state)
+            except Exception as e:
+                log.error("Error sending discord message: %s", e)
+
+    def __should_prepare_message(self, message, state: State, text: str) -> bool:
+        last_chunk = message.get_data("previous:last_chunk")
+        response_complete = message.get_data("previous:response_complete")
+
+        assert isinstance(response_complete, bool)
+
+        state.complete = response_complete
+
+        if len(text) <= len(state.text) and not last_chunk:
+            return False
+
+        now = datetime.now().timestamp()
+
+        # throttle responses
+        if last_chunk or response_complete or now - state.last_edit > 1_200:
+            state.last_edit = now
+        else:
+            return False
+
+        return True
+
+    def __prepare_message(self, message, state: State) -> tuple[MessageableChannel, View | None, str] | None:
+        channel = message.get_data("previous:channel")
+        messages = message.get_data("previous:text")
+
+        if not isinstance(messages, list):
+            if messages is not None:
+                messages = [messages]
+            else:
+                messages = []
+
+        text = ""
+
+        for part in messages:
+            if not part or not isinstance(part, str):
+                continue
+            text += part
+
+        if not self.__should_prepare_message(message, state, text):
+            return
+
+        text_channel = self.app.get_channel(channel)
+        if not isinstance(text_channel, (TextChannel, Thread)):
+            return
+
+        full = text or "\u200b"
+        if len(full) > 2000:
+            full = full[:2000]
+
+        view = self.create_feedback_view() if state.complete and self.feedback_endpoint is not None else None
+
+        return text_channel, view, full
 
     async def __send_message(self, message, state: State):
-        try:
-            channel = message.get_data("previous:channel")
-            messages = message.get_data("previous:text")
-            files = message.get_data("previous:files") or []
-            last_chunk = message.get_data("previous:last_chunk")
-            response_complete = message.get_data("previous:response_complete")
-            
-            if not last_chunk and not response_complete:
-                await self.start_typing(channel)
+        files = message.get_data("previous:files") or []
+        last_chunk = message.get_data("previous:last_chunk")
 
-            if not isinstance(messages, list):
-                if messages is not None:
-                    messages = [messages]
-                else:
-                    messages = []
+        content = self.__prepare_message(message, state)
+        if not content: return
 
-            now = datetime.now().timestamp()
-            text = ""
+        channel, view, text = content
 
-            for part in messages:
-                if not part or not isinstance(part, str):
-                    continue
-                text += part
+        if not last_chunk and not state.complete:
+            await self.start_typing(channel.id)
 
-            if len(text) <= len(state.text) and not last_chunk:
-                return
+        # Stop typing if this is the last message
+        if last_chunk or state.complete:
+            await self.stop_typing(channel)
 
-            # throttle responses
-            if last_chunk or response_complete or now - state.last_edit > 1_200:
-                state.last_edit = now
-            else:
-                return
+        if not state.active:
+            sent_message = await channel.send(text, view=view) if view else await channel.send(text)
+            state.active = ActiveState(
+                message=sent_message,
+                typing=channel.typing()
+            )
+        else:
+            await state.active.message.edit(content=text, view=view)
 
-            text_channel = self.app.get_channel(channel)
-            if not isinstance(text_channel, (TextChannel, Thread)):
-                return
+        files_to_add = []
 
-            full = text or "\u200b"
-            if len(full) > 2000:
-                full = full[:2000]
+        for file in files:
+            file_content = base64.b64decode(file["content"])
+            files_to_add.append(File(fp=file_content, filename=file["name"]))
 
-            view = self.create_feedback_view() if response_complete and self.feedback_endpoint is not None else None
-            
-            # Stop typing if this is the last message
-            if last_chunk or response_complete:
-                await self.stop_typing(channel)
-
-            if not state.active:
-                sent_message = await text_channel.send(full, view=view) if view else await text_channel.send(full)
-                state.active = ActiveState(
-                    message=sent_message,
-                    typing=text_channel.typing()
-                )
-            else:
-                await state.active.message.edit(content=full, view=view)
-
-            files_to_add = []
-
-            for file in files:
-                file_content = base64.b64decode(file["content"])
-                files_to_add.append(File(fp=file_content, filename=file["name"]))
-
-            if files_to_add:
-                await state.active.message.add_files(*files_to_add)
-
-        except Exception as e:
-            if 'channel' in locals():
-                await self.stop_typing(channel)
-            log.error("Error sending discord message: %s", e)
-            raise e
+        if files_to_add:
+            await state.active.message.add_files(*files_to_add)
 
     async def really_run(self):
         await self.app.login(self.discord_bot_token)
@@ -462,7 +482,7 @@ class DiscordSender(threading.Thread):
 
         @self.app.tree.command(name = "help")
         async def help(interaction: Interaction):
-            await interaction.response.send_message(f"""
+            await interaction.response.send_message("""
 # Hello! I'm Solly Chat
 
 I'm an AI assistant with agentic capabilities designed to help you with a variety of tasks. Here's what I can do:
@@ -507,12 +527,12 @@ Simply DM or @ me with questions or requests in natural language, and I'll use m
 
         await interaction.response.send_modal(Feedback(
             endpoint=self.feedback_endpoint))
-        
-    async def start_typing(self, channel_id):
+
+    async def start_typing(self, channel_id: int):
         """Start a typing indicator in the specified channel"""
         if not hasattr(self, 'typing_tasks'):
             self.typing_tasks = {}
-        
+
         if channel_id in self.typing_tasks and not self.typing_tasks[channel_id].done():
             return 
         

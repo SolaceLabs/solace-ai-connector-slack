@@ -241,7 +241,7 @@ class DiscordReceiver(threading.Thread):
         user_id = message.author.id
         text = message.clean_content
 
-        is_thread = message.channel.type in [ChannelType.public_thread, ChannelType.private_thread]
+        is_thread = isinstance(message.channel, (Thread, DMChannel))
 
         if is_thread:
             thread_id = message.channel.id
@@ -336,9 +336,7 @@ class DiscordReceiver(threading.Thread):
     def register_handlers(self):
         @self.app.event
         async def on_message(message: DiscordMessage):
-            if message.author == self.app.user:
-                return
-            if not self.app.user:
+            if not self.app.user or message.author.bot:
                 return
 
             if isinstance(message.channel, Thread) and isinstance(message.channel.parent, TextChannel):
@@ -349,7 +347,7 @@ class DiscordReceiver(threading.Thread):
 
                 if first_message.author != message.author:
                     return
-            elif not self.app.user.mentioned_in(message):
+            elif not isinstance(message.channel, DMChannel) and not self.app.user.mentioned_in(message):
                 return
 
             await self.handle_event(message)
