@@ -447,6 +447,45 @@ class DiscordSender(threading.Thread):
                 case "thumbs_up": await self.thumbs_up_callback(interaction)
                 case "thumbs_down": await self.thumbs_down_callback(interaction)
 
+        @self.app.tree.command(name = "help")
+        async def help(interaction: Interaction):
+            await interaction.response.send_message(f"""
+# Hello! I'm Solly Chat
+
+I'm an AI assistant with agentic capabilities designed to help you with a variety of tasks. Here's what I can do:
+
+## General Capabilities
+- Answer questions using my knowledge base
+- Have conversations on a wide range of topics
+- Provide reasoning and analysis
+- Generate creative content
+- Assist with problem-solving
+
+## Specialized Features
+
+### Document & File Handling
+- Convert various file formats (PDF, Word, Excel, HTML, CSV, PPTX, ZIP) to Markdown
+- Create and retrieve text files
+- Process file content
+
+### Data Visualization
+- Generate custom charts and graphs using Plotly
+- Create PlantUML diagrams (sequence, class, use case, activity, component, state, and timing diagrams)
+
+### Web Capabilities
+- Search the web for current information
+- Fetch and process content from websites
+- Search for news and current events
+- Find images online
+- Download external files from the web
+
+### Image Processing
+- Generate images based on text descriptions
+- Analyze and describe the content of images
+
+## How to Use Me
+Simply ask questions or make requests in natural language, and I'll use my capabilities to assist you. For complex tasks, I might break them down into steps and keep you updated on my progress.""", ephemeral=True)
+
     async def thumbs_up_callback(self, interaction: Interaction):
         await interaction.response.send_message("You clicked thumbs up!", ephemeral=True)
 
