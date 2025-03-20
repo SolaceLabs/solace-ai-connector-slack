@@ -346,7 +346,7 @@ class DiscordSender(threading.Thread):
             try:
                 await self.__send_message(message, state)
             except Exception as e:
-                log.error("Error sending discord message: %s", e)
+                log.error("Error sending discord message", exc_info=e)
 
     def __should_prepare_message(self, message, state: State, text: str) -> bool:
         last_chunk = message.get_data("previous:last_chunk")

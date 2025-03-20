@@ -28,8 +28,6 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-.DS_Store
-
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
@@ -126,7 +124,6 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-.env
 .venv
 env/
 venv/
