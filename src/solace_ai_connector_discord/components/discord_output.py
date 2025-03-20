@@ -484,7 +484,7 @@ I'm an AI assistant with agentic capabilities designed to help you with a variet
 - Analyze and describe the content of images
 
 ## How to Use Me
-Simply ask questions or make requests in natural language, and I'll use my capabilities to assist you. For complex tasks, I might break them down into steps and keep you updated on my progress.""", ephemeral=True)
+Simply DM or @ me with questions or requests in natural language, and I'll use my capabilities to assist you. For complex tasks, I might break them down into steps and keep you updated on my progress.""", ephemeral=True)
 
     async def thumbs_up_callback(self, interaction: Interaction):
         await interaction.response.send_message("You clicked thumbs up!", ephemeral=True)
