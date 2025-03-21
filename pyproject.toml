@@ -38,7 +38,7 @@ documentation = "https://github.com/SolaceLabs/solace-ai-connector-slack/blob/ma
 installer = "pip"
 
 [[tool.hatch.envs.hatch-test.matrix]]
-python = ["3.10", "3.11", "3.12"]
+python = ["3.10", "3.12"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/solace_ai_connector_slack"]
