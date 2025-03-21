@@ -13,9 +13,10 @@ authors = [
 ]
 description = "Slack plugin for the Solace AI Connector - this provides an input and output component to talk to Slack"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python",  
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
@@ -37,7 +38,7 @@ documentation = "https://github.com/SolaceLabs/solace-ai-connector-slack/blob/ma
 installer = "pip"
 
 [[tool.hatch.envs.hatch-test.matrix]]
-python = ["3.11", "3.12"]
+python = ["3.10", "3.11", "3.12"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/solace_ai_connector_slack"]
