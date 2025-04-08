@@ -10,6 +10,45 @@ from solace_ai_connector.components.component_base import ComponentBase
 
 class SlackBase(ComponentBase, ABC):
     _slack_apps = {}
+    _component_registry = {}  # Static registry for components
+    _channels_and_users = None  # Static instance of SlackChannelsAndUsers
+    
+    @classmethod
+    def get_channels_and_users(cls):
+        """
+        Get the shared SlackChannelsAndUsers instance.
+        
+        Returns:
+            SlackChannelsAndUsers: The shared instance.
+        """
+        if cls._channels_and_users is None:
+            from .slack_channels_and_users import SlackChannelsAndUsers
+            cls._channels_and_users = SlackChannelsAndUsers()
+        return cls._channels_and_users
+
+    @classmethod
+    def register_component(cls, component_type, component):
+        """
+        Register a component in the registry.
+        
+        Args:
+            component_type (str): The type of the component (e.g., "input", "output").
+            component: The component instance.
+        """
+        cls._component_registry[component_type] = component
+
+    @classmethod
+    def get_component(cls, component_type):
+        """
+        Get a component from the registry.
+        
+        Args:
+            component_type (str): The type of the component (e.g., "input", "output").
+            
+        Returns:
+            The component instance, or None if not found.
+        """
+        return cls._component_registry.get(component_type)
 
     def __init__(self, module_info, **kwargs):
         super().__init__(module_info, **kwargs)
@@ -30,6 +69,14 @@ class SlackBase(ComponentBase, ABC):
                 self.app = SlackBase._slack_apps[self.slack_bot_token]
         else:
             self.app = App(token=self.slack_bot_token)
+            
+        # Set the app in the channels and users instance
+        channels_and_users = self.get_channels_and_users()
+        channels_and_users.set_app(self.app)
+            
+        # Register this component in the registry
+        component_type = self.__class__.__name__.lower()
+        SlackBase.register_component(component_type, self)
 
     @abstractmethod
     def invoke(self, message, data):
@@ -53,6 +100,10 @@ class SlackBase(ComponentBase, ABC):
         @self.app.action("feedback_text_reason")
         def handle_feedback_input(ack, body, say):
             self.feedback_reason_handler(ack, body)
+            
+        @self.app.action("submit_form")
+        def handle_submit_form(ack, body, say):
+            self.handle_form_submission(ack, body)
 
     def feedback_reason_handler(self, ack, body):
         # Acknowledge the action request
@@ -270,3 +321,103 @@ class SlackBase(ComponentBase, ABC):
                     }
                 }
             }
+            
+    def handle_form_submission(self, ack, body):
+        """
+        Handle form submissions.
+        
+        Args:
+            ack: Function to acknowledge the action.
+            body: The action payload.
+        """
+        # Acknowledge the action request
+        ack()
+        
+        # Extract the value from the button
+        value_json = body['actions'][0]['value']
+        try:
+            value_object = json.loads(value_json)
+            task_id = value_object.get("task_id")
+        except json.JSONDecodeError:
+            self.logger.error("Failed to parse submit button value as JSON")
+            return
+        
+        if not task_id:
+            self.logger.error("No task_id found in submit button value")
+            return
+        
+        # Extract form data from the submission
+        form_data = {}
+        state_values = body.get("state", {}).get("values", {})
+        for block_id, block_values in state_values.items():
+            for action_id, action_value in block_values.items():
+                # Extract the field name from the action_id (e.g., "action_firstName" -> "firstName")
+                if action_id.startswith("action_"):
+                    field_name = action_id[len("action_"):]
+                    
+                    # Handle different types of inputs
+                    if "value" in action_value:
+                        # Plain text input
+                        form_data[field_name] = action_value["value"]
+                    elif "selected_option" in action_value:
+                        # Radio buttons or select
+                        form_data[field_name] = action_value["selected_option"]["value"]
+                    elif "selected_options" in action_value:
+                        # Checkboxes or multi-select
+                        form_data[field_name] = [option["value"] for option in action_value["selected_options"]]
+        
+        # Create a new message with the form data
+        channel = body["channel"]["id"]
+        user_id = body["user"]["id"]
+        thread_ts = body["message"].get("thread_ts")
+        
+        # Get user email
+        user_email = self.get_user_email(user_id)
+        # Find the SlackInput instance
+        slack_input = SlackBase.get_component("slackinput")
+        if not slack_input:
+            self.logger.error("Could not find SlackInput instance")
+            return
+        
+        # Create an event that mimics a message event
+        event = {
+            "type": "form_submission",
+            "user": user_id,
+            "channel": channel,
+            "ts": body["message"]["ts"],
+            "thread_ts": thread_ts,
+            "text": json.dumps(form_data),  # Put the form data in the text field
+            "form_data": form_data,  # Also include it directly
+            "task_id": task_id,  # Include the task_id
+            "channel_type": body.get("channel_type") or (
+                body.get("channel", {}).get("type", "unknown") if isinstance(body.get("channel"), dict) else "unknown"
+            ),
+            "user_email": user_email,
+        }
+        
+        # Invoke the handle_event method of SlackInput
+        slack_input.handle_event(event)
+        
+        # Optionally, send a confirmation message to the user
+        self.app.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text="Form submitted successfully!"
+        )
+        
+    def get_user_email(self, user_id):
+        """
+        Get the email of a user.
+        
+        Args:
+            user_id (str): The ID of the user.
+            
+        Returns:
+            str: The email of the user, or the user ID if the email is not available.
+        """
+        try:
+            response = self.app.client.users_info(user=user_id)
+            return response["user"]["profile"].get("email", user_id)
+        except Exception as e:
+            self.logger.error(f"Failed to get user email: {str(e)}")
+            return user_id

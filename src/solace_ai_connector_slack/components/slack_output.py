@@ -7,6 +7,7 @@ from prettytable import PrettyTable
 
 from solace_ai_connector.common.log import log
 from .slack_base import SlackBase
+from .rjsf_to_slack_blocks import RJSFToSlackBlocksConverter
 
 
 info = {
@@ -151,8 +152,12 @@ class SlackOutput(SlackBase):
         thread_ts = message_info.get("ts")
         channel = message_info.get("channel")
         ack_msg_ts = message_info.get("ack_msg_ts")
+        user_id = message_info.get("user_id")  # Get the user ID from the message info
 
         feedback_data = data.get("feedback_data", {})
+
+        user_form = content.get("user_form", {})
+        task_id = content.get("task_id", "")
 
         if response_complete:
             status_update = True
@@ -178,6 +183,9 @@ class SlackOutput(SlackBase):
             "first_chunk": first_chunk,
             "response_complete": response_complete,
             "feedback_data": feedback_data,
+            "user_form": user_form,
+            "task_id": task_id,
+            "user_id": user_id,  # Pass the user ID to send_message
         }
 
     def send_message(self, message):
@@ -192,8 +200,11 @@ class SlackOutput(SlackBase):
             last_chunk = message.get_data("previous:last_chunk")
             uuid = message.get_data("previous:uuid")
             status_update = message.get_data("previous:status_update")
+            user_form = message.get_data("previous:user_form")
             response_complete = message.get_data("previous:response_complete")
             feedback_data = message.get_data("previous:feedback_data") or {}
+            task_id = message.get_data("previous:task_id")
+            user_id = message.get_data("previous:user_id") or (message.get_user_properties() or {}).get("user_id")
 
             if not isinstance(messages, list):
                 if messages is not None:
@@ -201,89 +212,140 @@ class SlackOutput(SlackBase):
                 else:
                     messages = []
 
-            for index, text in enumerate(messages):
-                if not text or not isinstance(text, str):
-                    continue
+            # If user form is not empty, process it
+            if user_form and user_form != {}:
+                # We want to store the task_id in the user_form so that when it's
+                # submitted, we can get that data back.
 
-                if self.fix_formatting:
-                    text = self.fix_markdown(text)
-
-                if index != 0:
-                    text = "\n" + text
-
-                if first_chunk:
-                    streaming_state = self.add_streaming_state(uuid)
-                else:
-                    streaming_state = self.get_streaming_state(uuid)
-                    if not streaming_state:
-                        streaming_state = self.add_streaming_state(uuid)
-
-                if streaming:
-                    if streaming_state.get("completed"):
-                        # We can sometimes get a message after the stream has completed
+                # Use the RJSF to Slack blocks converter
+                converter = RJSFToSlackBlocksConverter()
+                blocks = converter.convert(user_form, task_id)
+                
+                # For the form, we want to send it to the DM channel for the user
+                dm_channel = None
+                
+                # Get the channels and users instance
+                channels_and_users = self.get_channels_and_users()
+                
+                # If we have a user ID, try to get or create a DM channel
+                if user_id:
+                    dm_channel = channels_and_users.get_or_create_dm_channel(user_id)
+                
+                # If we couldn't get a DM channel, fall back to the original channel
+                if not dm_channel:
+                    dm_channel = channel
+                    log.warning(f"Could not create DM channel for user {user_id}, falling back to original channel {channel}")
+                
+                # Get the original channel name for reference
+                channel_name = channels_and_users.get_channel_name(channel)
+                
+                # Create a reference to the original conversation
+                reference_text = f"Form from #{channel_name}"
+                
+                # Add a context block with the reference
+                context_block = {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": reference_text
+                        }
+                    ]
+                }
+                
+                # Add the context block to the beginning of the blocks
+                blocks.insert(0, context_block)
+                
+                # Send the form data as a message to the DM channel
+                self.app.client.chat_postMessage(
+                    channel=dm_channel,
+                    blocks=blocks,
+                    text=reference_text
+                )
+            else: 
+                for index, text in enumerate(messages):
+                    if not text or not isinstance(text, str):
                         continue
 
-                    streaming_state["completed"] = last_chunk
-                    ts = streaming_state.get("ts")
-                    if status_update:
-                        blocks = [
-                            {
-                                "type": "context",
-                                "elements": [
-                                    {
-                                        "type": "mrkdwn",
-                                        "text": text,
-                                    }
-                                ],
-                            },
-                        ]
+                    if self.fix_formatting:
+                        text = self.fix_markdown(text)
 
-                        if not ts:
-                            ts = ack_msg_ts
-                        try:
-                            self.app.client.chat_update(
-                                channel=channel, ts=ts, text="test", blocks=blocks
-                            )
-                        except Exception:
-                            pass
-                    elif ts:
-                        try:
-                            self.app.client.chat_update(
-                                channel=channel, ts=ts, text=text
-                            )
-                        except Exception:
-                            # It is normal to possibly get an update after the final
-                            # message has already arrived and deleted the ack message
-                            pass
+                    if index != 0:
+                        text = "\n" + text
+
+                    if first_chunk:
+                        streaming_state = self.add_streaming_state(uuid)
                     else:
-                        response = self.app.client.chat_postMessage(
-                            channel=channel, text=text, thread_ts=reply_to
-                        )
-                        streaming_state["ts"] = response["ts"]
+                        streaming_state = self.get_streaming_state(uuid)
+                        if not streaming_state:
+                            streaming_state = self.add_streaming_state(uuid)
 
-                else:
-                    # Not streaming
-                    ts = streaming_state.get("ts")
-                    streaming_state["completed"] = True
-                    if not ts:
-                        self.app.client.chat_postMessage(
-                            channel=channel, text=text, thread_ts=reply_to
-                        )
+                    if streaming:
+                        if streaming_state.get("completed"):
+                            # We can sometimes get a message after the stream has completed
+                            continue
 
-            for file in files:
-                file_content = base64.b64decode(file["content"])
-                self.app.client.files_upload_v2(
-                    channel=channel,
-                    file=file_content,
-                    thread_ts=reply_to,
-                    filename=file["name"],
-                )
+                        streaming_state["completed"] = last_chunk
+                        ts = streaming_state.get("ts")
+                        if status_update:
+                            blocks = [
+                                {
+                                    "type": "context",
+                                    "elements": [
+                                        {
+                                            "type": "mrkdwn",
+                                            "text": text,
+                                        }
+                                    ],
+                                },
+                            ]
 
-            if streaming and response_complete and self.feedback_enabled:
-                blocks = self.create_feedback_blocks(feedback_data, channel, reply_to)
-                response = self.app.client.chat_postMessage(
-                    channel=channel, text="feedback", thread_ts=reply_to, blocks=blocks
-                )
+                            if not ts:
+                                ts = ack_msg_ts
+                            try:
+                                self.app.client.chat_update(
+                                    channel=channel, ts=ts, text="test", blocks=blocks
+                                )
+                            except Exception:
+                                pass
+                        elif ts:
+                            try:
+                                self.app.client.chat_update(
+                                    channel=channel, ts=ts, text=text
+                                )
+                            except Exception:
+                                # It is normal to possibly get an update after the final
+                                # message has already arrived and deleted the ack message
+                                pass
+                        else:
+                            response = self.app.client.chat_postMessage(
+                                channel=channel, text=text, thread_ts=reply_to
+                            )
+                            streaming_state["ts"] = response["ts"]
+
+                    else:
+                        # Not streaming
+                        ts = streaming_state.get("ts")
+                        streaming_state["completed"] = True
+                        if not ts:
+                            self.app.client.chat_postMessage(
+                                channel=channel, text=text, thread_ts=reply_to
+                            )
+
+                for file in files:
+                    file_content = base64.b64decode(file["content"])
+                    self.app.client.files_upload_v2(
+                        channel=channel,
+                        file=file_content,
+                        thread_ts=reply_to,
+                        filename=file["name"],
+                    )
+
+                if streaming and response_complete and self.feedback_enabled:
+                    blocks = self.create_feedback_blocks(feedback_data, channel, reply_to)
+                    response = self.app.client.chat_postMessage(
+                        channel=channel, text="feedback", thread_ts=reply_to, blocks=blocks
+                    )
 
 
         except Exception as e:

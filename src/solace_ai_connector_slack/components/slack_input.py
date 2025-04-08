@@ -180,9 +180,22 @@ class SlackInput(SlackBase):
         # Get the next message from the Slack receiver queue
         message = self.slack_receiver_queue.get()
         return message
-
+    
     def invoke(self, _message, data):
         return data
+        
+    def handle_event(self, event):
+        """
+        Handle an event by delegating to the SlackReceiver instance.
+        
+        Args:
+            event: The event to handle.
+        """
+        if self.slack_receiver:
+            self.slack_receiver.handle_event(event)
+        else:
+            log.error("SlackReceiver not initialized, cannot handle event")
+
 
 
 class SlackReceiver(threading.Thread):
@@ -258,14 +271,15 @@ class SlackReceiver(threading.Thread):
                 )
 
         team_domain = None
-        try:
-            permalink = self.app.client.chat_getPermalink(
-                channel=event["channel"], message_ts=event["event_ts"]
-            )
-            team_domain = permalink.get("permalink", "").split("//")[1]
-            team_domain = team_domain.split(".")[0]
-        except Exception as e:
-            log.error("Error getting team domain: %s", e)
+        if "event_ts" in event:
+            try:
+                permalink = self.app.client.chat_getPermalink(
+                    channel=event["channel"], message_ts=event["event_ts"]
+                )
+                team_domain = permalink.get("permalink", "").split("//")[1]
+                team_domain = team_domain.split(".")[0]
+            except Exception as e:
+                log.error("Error getting team domain: %s", e)
 
         user_email = self.get_user_email(event.get("user"))
         (text, mention_emails) = self.process_text_for_mentions(event["text"])
@@ -306,6 +320,8 @@ class SlackReceiver(threading.Thread):
             "user_id": event.get("user"),
             "thread_id": thread_id,
             "reply_to_thread": reply_to,
+            "form_data": event.get("form_data", None),
+            "task_id": event.get("task_id", None),
         }
         user_properties = {
             "user_email": user_email,
