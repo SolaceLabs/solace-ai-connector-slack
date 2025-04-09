@@ -158,10 +158,13 @@ class SlackOutput(SlackBase):
 
         user_form = content.get("user_form", {})
         task_id = content.get("task_id", "")
+        response_suspended = content.get("response_suspended", False)
 
         if response_complete:
             status_update = True
             text = ":checkered_flag: Response complete"
+        elif response_suspended:
+            text = ":double_vertical_bar: " + text
         elif status_update:
             text = ":thinking_face: " + text
 
@@ -182,6 +185,7 @@ class SlackOutput(SlackBase):
             "last_chunk": last_chunk,
             "first_chunk": first_chunk,
             "response_complete": response_complete,
+            "response_suspended": response_suspended,
             "feedback_data": feedback_data,
             "user_form": user_form,
             "task_id": task_id,
