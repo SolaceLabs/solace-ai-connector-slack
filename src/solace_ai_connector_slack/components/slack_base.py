@@ -386,7 +386,8 @@ class SlackBase(ComponentBase, ABC):
             "channel": channel,
             "ts": body["message"]["ts"],
             "thread_ts": thread_ts,
-            "text": json.dumps(form_data),  # Put the form data in the text field
+            "text": json.dumps(form_data), # Put the form data in the text field
+            "event_type": "post_user_form",
             "form_data": form_data,  # Also include it directly
             "task_id": task_id,  # Include the task_id
             "channel_type": body.get("channel_type") or (

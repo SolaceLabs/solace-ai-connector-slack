@@ -321,6 +321,7 @@ class SlackReceiver(threading.Thread):
             "thread_id": thread_id,
             "reply_to_thread": reply_to,
             "form_data": event.get("form_data", None),
+            "event_type": event.get("event_type", None),
             "task_id": event.get("task_id", None),
         }
         user_properties = {
