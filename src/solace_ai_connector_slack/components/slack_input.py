@@ -224,7 +224,7 @@ class SlackReceiver(threading.Thread):
         self.handle_event(event)
 
     def handle_group_event(self, _event):
-        log.info("Received a private group event. Ignoring.")
+        log.debug("Received a private group event. Ignoring.")
 
     def handle_event(self, event):
         files = []
